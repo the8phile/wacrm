@@ -181,7 +181,7 @@ export function validateSendMessageParams(params: {
 }
 
 export async function sendMessageToConversation(
-  db: SupabaseClient,
+  db: SupabaseClient<any, any, any>,
   accountId: string,
   params: SendMessageParams
 ): Promise<SendMessageResult> {

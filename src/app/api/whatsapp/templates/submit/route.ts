@@ -57,7 +57,7 @@ function buildUpsertRow(
 }
 
 async function upsertTemplateRow(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient<any, any, any>,
   row: ReturnType<typeof buildUpsertRow>,
 ) {
   // TODO(account-sharing): conflict target is still scoped to

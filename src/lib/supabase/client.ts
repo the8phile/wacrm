@@ -4,9 +4,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // Singleton instance — one client shared across the whole browser session.
 // Creating multiple clients causes auth-lock contention ("Lock was released
 // because another request stole it") and intermittent fetch failures.
-let browserClient: SupabaseClient | undefined
+let browserClient: SupabaseClient<any, any, any> | undefined
 
-export function createClient() {
+export function createClient(): SupabaseClient<any, any, any> {
   if (browserClient) return browserClient
 
   browserClient = createBrowserClient(
