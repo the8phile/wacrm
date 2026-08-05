@@ -1302,6 +1302,7 @@ function StepEditor({
           onChange={(payload) =>
             onChange({ ...step, step_config: toStepConfig(payload) })
           }
+          showPreview={false}
         />
       )
     case "send_template":
