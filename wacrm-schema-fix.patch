@@ -1,0 +1,90 @@
+diff --git a/src/app/api/whatsapp/config/route.ts b/src/app/api/whatsapp/config/route.ts
+index 399699c..6a0fcce 100644
+--- a/src/app/api/whatsapp/config/route.ts
++++ b/src/app/api/whatsapp/config/route.ts
+@@ -41,7 +41,8 @@ function supabaseAdmin() {
+   if (!_adminClient) {
+     _adminClient = createAdminClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+-      process.env.SUPABASE_SERVICE_ROLE_KEY!
++      process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } }
+     )
+   }
+   return _adminClient
+diff --git a/src/app/api/whatsapp/webhook/route.ts b/src/app/api/whatsapp/webhook/route.ts
+index 7687637..9c340de 100644
+--- a/src/app/api/whatsapp/webhook/route.ts
++++ b/src/app/api/whatsapp/webhook/route.ts
+@@ -27,7 +27,8 @@ function supabaseAdmin() {
+   if (!_adminClient) {
+     _adminClient = createClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+-      process.env.SUPABASE_SERVICE_ROLE_KEY!
++      process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } }
+     )
+   }
+   return _adminClient
+diff --git a/src/lib/ai/admin-client.ts b/src/lib/ai/admin-client.ts
+index 56afb5c..5046f8b 100644
+--- a/src/lib/ai/admin-client.ts
++++ b/src/lib/ai/admin-client.ts
+@@ -11,6 +11,7 @@ export function supabaseAdmin(): SupabaseClient {
+     _adminClient = createClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+       process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } },
+     )
+   }
+   return _adminClient
+diff --git a/src/lib/automations/admin-client.ts b/src/lib/automations/admin-client.ts
+index 173373c..1e966d7 100644
+--- a/src/lib/automations/admin-client.ts
++++ b/src/lib/automations/admin-client.ts
+@@ -10,6 +10,7 @@ export function supabaseAdmin(): SupabaseClient {
+     _adminClient = createClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+       process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } },
+     )
+   }
+   return _adminClient
+diff --git a/src/lib/flows/admin-client.ts b/src/lib/flows/admin-client.ts
+index a5e39b6..4075777 100644
+--- a/src/lib/flows/admin-client.ts
++++ b/src/lib/flows/admin-client.ts
+@@ -10,6 +10,7 @@ export function supabaseAdmin(): SupabaseClient {
+     _adminClient = createClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+       process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } },
+     )
+   }
+   return _adminClient
+diff --git a/src/lib/supabase/client.ts b/src/lib/supabase/client.ts
+index f381eb7..7a158c9 100644
+--- a/src/lib/supabase/client.ts
++++ b/src/lib/supabase/client.ts
+@@ -11,7 +11,8 @@ export function createClient() {
+ 
+   browserClient = createBrowserClient(
+     process.env.NEXT_PUBLIC_SUPABASE_URL!,
+-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
++    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
++    { db: { schema: 'wacrm' } }
+   )
+ 
+   return browserClient
+diff --git a/src/lib/supabase/server.ts b/src/lib/supabase/server.ts
+index f52850d..fbc7858 100644
+--- a/src/lib/supabase/server.ts
++++ b/src/lib/supabase/server.ts
+@@ -8,6 +8,7 @@ export async function createClient() {
+     process.env.NEXT_PUBLIC_SUPABASE_URL!,
+     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+     {
++      db: { schema: 'wacrm' },
+       cookies: {
+         getAll() {
+           return cookieStore.getAll()

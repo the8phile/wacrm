@@ -79,8 +79,10 @@ const nextConfig: NextConfig = {
    * `ALLOWED_DEV_ORIGINS` (comma-separated). This key is dev-only and
    * has no effect on a production build.
    */
-  allowedDevOrigins: [
+allowedDevOrigins: [
     "*.ngrok-free.app",
+    "*.ngrok-free.dev",
+    "*.ngrok.app",
     "*.ngrok.app",
     "*.ngrok.io",
     "*.trycloudflare.com",
