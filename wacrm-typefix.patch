@@ -1,0 +1,177 @@
+diff --git a/next.config.ts b/next.config.ts
+index 3f38c50..46244d3 100644
+--- a/next.config.ts
++++ b/next.config.ts
+@@ -81,6 +81,7 @@ const nextConfig: NextConfig = {
+    */
+   allowedDevOrigins: [
+     "*.ngrok-free.app",
++    "*.ngrok-free.dev",
+     "*.ngrok.app",
+     "*.ngrok.io",
+     "*.trycloudflare.com",
+diff --git a/src/app/api/whatsapp/config/route.ts b/src/app/api/whatsapp/config/route.ts
+index 399699c..6a0fcce 100644
+--- a/src/app/api/whatsapp/config/route.ts
++++ b/src/app/api/whatsapp/config/route.ts
+@@ -41,7 +41,8 @@ function supabaseAdmin() {
+   if (!_adminClient) {
+     _adminClient = createAdminClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+-      process.env.SUPABASE_SERVICE_ROLE_KEY!
++      process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } }
+     )
+   }
+   return _adminClient
+diff --git a/src/app/api/whatsapp/templates/submit/route.ts b/src/app/api/whatsapp/templates/submit/route.ts
+index 2569f59..b3ea46b 100644
+--- a/src/app/api/whatsapp/templates/submit/route.ts
++++ b/src/app/api/whatsapp/templates/submit/route.ts
+@@ -57,7 +57,7 @@ function buildUpsertRow(
+ }
+ 
+ async function upsertTemplateRow(
+-  supabase: SupabaseClient,
++  supabase: SupabaseClient<any, any, any>,
+   row: ReturnType<typeof buildUpsertRow>,
+ ) {
+   // TODO(account-sharing): conflict target is still scoped to
+diff --git a/src/app/api/whatsapp/webhook/route.ts b/src/app/api/whatsapp/webhook/route.ts
+index 7687637..9c340de 100644
+--- a/src/app/api/whatsapp/webhook/route.ts
++++ b/src/app/api/whatsapp/webhook/route.ts
+@@ -27,7 +27,8 @@ function supabaseAdmin() {
+   if (!_adminClient) {
+     _adminClient = createClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+-      process.env.SUPABASE_SERVICE_ROLE_KEY!
++      process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } }
+     )
+   }
+   return _adminClient
+diff --git a/src/lib/ai/admin-client.ts b/src/lib/ai/admin-client.ts
+index 56afb5c..a007a61 100644
+--- a/src/lib/ai/admin-client.ts
++++ b/src/lib/ai/admin-client.ts
+@@ -4,13 +4,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+ // Mirrors src/lib/flows/admin-client.ts and src/lib/automations/admin-client.ts
+ // — the inbound webhook has no `auth.uid()`, so the bot reads config +
+ // conversation state and sends through the service role.
+-let _adminClient: SupabaseClient | null = null
++let _adminClient: SupabaseClient<any, any, any> | null = null
+ 
+-export function supabaseAdmin(): SupabaseClient {
++export function supabaseAdmin(): SupabaseClient<any, any, any> {
+   if (!_adminClient) {
+     _adminClient = createClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+       process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } },
+     )
+   }
+   return _adminClient
+diff --git a/src/lib/auth/account.ts b/src/lib/auth/account.ts
+index 5fba21a..dc63204 100644
+--- a/src/lib/auth/account.ts
++++ b/src/lib/auth/account.ts
+@@ -80,7 +80,7 @@ export function toErrorResponse(err: unknown): NextResponse {
+ 
+ export interface AccountContext {
+   /** Supabase SSR client, RLS scoped to the calling user. */
+-  supabase: SupabaseClient;
++  supabase: SupabaseClient<any, any, any>;
+   /** `auth.uid()` for the caller. Always defined when this resolves. */
+   userId: string;
+   /** Caller's account_id from their profile row. */
+diff --git a/src/lib/automations/admin-client.ts b/src/lib/automations/admin-client.ts
+index 173373c..41194b6 100644
+--- a/src/lib/automations/admin-client.ts
++++ b/src/lib/automations/admin-client.ts
+@@ -3,13 +3,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+ // Lazy, shared service-role client for automation engine work.
+ // Mirrors the pattern used by the webhook handler
+ // (src/app/api/whatsapp/webhook/route.ts).
+-let _adminClient: SupabaseClient | null = null
++let _adminClient: SupabaseClient<any, any, any> | null = null
+ 
+-export function supabaseAdmin(): SupabaseClient {
++export function supabaseAdmin(): SupabaseClient<any, any, any> {
+   if (!_adminClient) {
+     _adminClient = createClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+       process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } },
+     )
+   }
+   return _adminClient
+diff --git a/src/lib/flows/admin-client.ts b/src/lib/flows/admin-client.ts
+index a5e39b6..84535ce 100644
+--- a/src/lib/flows/admin-client.ts
++++ b/src/lib/flows/admin-client.ts
+@@ -3,13 +3,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+ // Lazy, shared service-role client for the Flows engine.
+ // Mirrors src/lib/automations/admin-client.ts — same shape so anyone
+ // reading either file picks up the convention immediately.
+-let _adminClient: SupabaseClient | null = null
++let _adminClient: SupabaseClient<any, any, any> | null = null
+ 
+-export function supabaseAdmin(): SupabaseClient {
++export function supabaseAdmin(): SupabaseClient<any, any, any> {
+   if (!_adminClient) {
+     _adminClient = createClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+       process.env.SUPABASE_SERVICE_ROLE_KEY!,
++      { db: { schema: 'wacrm' } },
+     )
+   }
+   return _adminClient
+diff --git a/src/lib/supabase/client.ts b/src/lib/supabase/client.ts
+index f381eb7..6807afa 100644
+--- a/src/lib/supabase/client.ts
++++ b/src/lib/supabase/client.ts
+@@ -4,14 +4,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
+ // Singleton instance — one client shared across the whole browser session.
+ // Creating multiple clients causes auth-lock contention ("Lock was released
+ // because another request stole it") and intermittent fetch failures.
+-let browserClient: SupabaseClient | undefined
++let browserClient: SupabaseClient<any, any, any> | undefined
+ 
+-export function createClient() {
++export function createClient(): SupabaseClient<any, any, any> {
+   if (browserClient) return browserClient
+ 
+   browserClient = createBrowserClient(
+     process.env.NEXT_PUBLIC_SUPABASE_URL!,
+-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
++    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
++    { db: { schema: 'wacrm' } }
+   )
+ 
+   return browserClient
+diff --git a/src/lib/supabase/server.ts b/src/lib/supabase/server.ts
+index f52850d..fbc7858 100644
+--- a/src/lib/supabase/server.ts
++++ b/src/lib/supabase/server.ts
+@@ -8,6 +8,7 @@ export async function createClient() {
+     process.env.NEXT_PUBLIC_SUPABASE_URL!,
+     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+     {
++      db: { schema: 'wacrm' },
+       cookies: {
+         getAll() {
+           return cookieStore.getAll()
+diff --git a/src/lib/whatsapp/send-message.ts b/src/lib/whatsapp/send-message.ts
+index 5b5ca32..a15d12c 100644
+--- a/src/lib/whatsapp/send-message.ts
++++ b/src/lib/whatsapp/send-message.ts
+@@ -181,7 +181,7 @@ export function validateSendMessageParams(params: {
+ }
+ 
+ export async function sendMessageToConversation(
+-  db: SupabaseClient,
++  db: SupabaseClient<any, any, any>,
+   accountId: string,
+   params: SendMessageParams
+ ): Promise<SendMessageResult> {
