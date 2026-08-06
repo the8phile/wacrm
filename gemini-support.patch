@@ -1,0 +1,247 @@
+diff --git a/src/app/api/ai/config/route.ts b/src/app/api/ai/config/route.ts
+index 08025df..a9855d7 100644
+--- a/src/app/api/ai/config/route.ts
++++ b/src/app/api/ai/config/route.ts
+@@ -78,8 +78,8 @@ export async function POST(request: Request) {
+     if (!body || typeof body !== 'object') return bad('Invalid request body')
+ 
+     const provider = body.provider as AiProvider
+-    if (provider !== 'openai' && provider !== 'anthropic') {
+-      return bad('provider must be "openai" or "anthropic"')
++    if (provider !== 'openai' && provider !== 'anthropic' && provider !== 'google') {
++      return bad('provider must be "openai", "anthropic", or "google"')
+     }
+     const model = typeof body.model === 'string' ? body.model.trim() : ''
+     if (!model) return bad('model is required')
+diff --git a/src/app/api/ai/test/route.ts b/src/app/api/ai/test/route.ts
+index 8fa1f5f..12f7324 100644
+--- a/src/app/api/ai/test/route.ts
++++ b/src/app/api/ai/test/route.ts
+@@ -27,9 +27,9 @@ export async function POST(request: Request) {
+     }
+ 
+     const provider = body.provider as AiProvider
+-    if (provider !== 'openai' && provider !== 'anthropic') {
++    if (provider !== 'openai' && provider !== 'anthropic' && provider !== 'google') {
+       return NextResponse.json(
+-        { error: 'provider must be "openai" or "anthropic"' },
++        { error: 'provider must be "openai", "anthropic", or "google"' },
+         { status: 400 },
+       )
+     }
+diff --git a/src/components/settings/ai-config.tsx b/src/components/settings/ai-config.tsx
+index 6028090..42c0c69 100644
+--- a/src/components/settings/ai-config.tsx
++++ b/src/components/settings/ai-config.tsx
+@@ -41,11 +41,13 @@ const HANDOFF_QUEUE = '__queue__';
+ const PROVIDER_LABEL: Record<AiProvider, string> = {
+   openai: 'OpenAI',
+   anthropic: 'Anthropic (Claude)',
++  google: 'Google AI Studio (Gemini)',
+ };
+ 
+ const KEY_PLACEHOLDER: Record<AiProvider, string> = {
+   openai: 'sk-...',
+   anthropic: 'sk-ant-...',
++  google: 'AIza...',
+ };
+ 
+ export function AiConfig() {
+@@ -131,6 +133,7 @@ export function AiConfig() {
+     const isDefaultModel =
+       model === AI_PROVIDER_DEFAULT_MODEL.openai ||
+       model === AI_PROVIDER_DEFAULT_MODEL.anthropic ||
++      model === AI_PROVIDER_DEFAULT_MODEL.google ||
+       model.trim() === '';
+     if (isDefaultModel) setModel(AI_PROVIDER_DEFAULT_MODEL[next]);
+   };
+@@ -281,6 +284,7 @@ export function AiConfig() {
+                     <SelectItem value="anthropic">
+                       {PROVIDER_LABEL.anthropic}
+                     </SelectItem>
++                    <SelectItem value="google">{PROVIDER_LABEL.google}</SelectItem>
+                   </SelectContent>
+                 </Select>
+               </div>
+diff --git a/src/lib/ai/config.ts b/src/lib/ai/config.ts
+index 49cd6a2..700c5ef 100644
+--- a/src/lib/ai/config.ts
++++ b/src/lib/ai/config.ts
+@@ -3,7 +3,7 @@ import { decrypt } from '@/lib/whatsapp/encryption'
+ import type { AiConfig } from './types'
+ 
+ interface AiConfigRow {
+-  provider: 'openai' | 'anthropic'
++  provider: 'openai' | 'anthropic' | 'google'
+   model: string
+   api_key: string
+   system_prompt: string | null
+diff --git a/src/lib/ai/defaults.ts b/src/lib/ai/defaults.ts
+index a212a25..757c789 100644
+--- a/src/lib/ai/defaults.ts
++++ b/src/lib/ai/defaults.ts
+@@ -13,6 +13,7 @@ import type { AiProvider } from './types'
+ export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
+   openai: 'gpt-5.4-mini',
+   anthropic: 'claude-haiku-4-5-20251001',
++  google: 'gemini-2.0-flash',
+ }
+ 
+ /**
+diff --git a/src/lib/ai/generate.ts b/src/lib/ai/generate.ts
+index 31315b2..2292a23 100644
+--- a/src/lib/ai/generate.ts
++++ b/src/lib/ai/generate.ts
+@@ -8,6 +8,7 @@ import {
+ import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults'
+ import { generateOpenAi } from './providers/openai'
+ import { generateAnthropic } from './providers/anthropic'
++import { generateGemini } from './providers/gemini'
+ 
+ export interface GenerateArgs {
+   config: AiConfig
+@@ -41,6 +42,9 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
+     case 'anthropic':
+       result = await generateAnthropic(providerArgs)
+       break
++    case 'google':
++      result = await generateGemini(providerArgs)
++      break
+     default:
+       throw new AiError(`Unsupported AI provider: ${config.provider}`, {
+         code: 'unsupported_provider',
+diff --git a/src/lib/ai/providers/gemini.ts b/src/lib/ai/providers/gemini.ts
+new file mode 100644
+index 0000000..3e93104
+--- /dev/null
++++ b/src/lib/ai/providers/gemini.ts
+@@ -0,0 +1,116 @@
++import { AiError, type ChatMessage, type ProviderResult } from '../types'
++import { MAX_OUTPUT_TOKENS } from '../defaults'
++import {
++  mergeConsecutive,
++  normalizeUsage,
++  toNetworkError,
++  type ProviderArgs,
++} from './shared'
++
++const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
++
++interface GeminiResponse {
++  candidates?: {
++    content?: { parts?: { text?: string }[] }
++    finishReason?: string
++  }[]
++  usageMetadata?: {
++    promptTokenCount?: number
++    candidatesTokenCount?: number
++    totalTokenCount?: number
++  }
++  error?: { message?: string; status?: string }
++}
++
++/**
++ * Gemini's generateContent API uses `user`/`model` roles and, like
++ * Anthropic, reads best starting on a customer turn. Reuse the same
++ * merge-and-trim normalization, then remap `assistant` -> `model`.
++ */
++function normalizeForGemini(messages: ChatMessage[]) {
++  const merged = mergeConsecutive(messages)
++  while (merged.length > 0 && merged[0].role === 'assistant') {
++    merged.shift()
++  }
++  const turns = merged.length > 0
++    ? merged
++    : [{ role: 'user' as const, content: '(The customer has not sent a message yet.)' }]
++  return turns.map((m) => ({
++    role: m.role === 'assistant' ? 'model' : 'user',
++    parts: [{ text: m.content }],
++  }))
++}
++
++/** Map Gemini's non-2xx response to a typed AiError, same taxonomy the
++ *  OpenAI/Anthropic adapters use so the settings "Test key" button and
++ *  auto-reply handoff logic don't need to special-case the provider. */
++function geminiHttpError(status: number, body: GeminiResponse | null): AiError {
++  const detail = body?.error?.message ?? ''
++  const code =
++    status === 400 && /API key/i.test(detail)
++      ? 'invalid_key'
++      : status === 401 || status === 403
++        ? 'invalid_key'
++        : status === 429
++          ? 'rate_limited'
++          : 'provider_error'
++  const base =
++    code === 'invalid_key'
++      ? 'Google AI Studio rejected the API key'
++      : code === 'rate_limited'
++        ? 'Google AI Studio rate limit reached'
++        : `Google AI Studio API error (${status})`
++  return new AiError(detail ? `${base}: ${detail}` : base, {
++    code,
++    status: code === 'invalid_key' ? 401 : 502,
++  })
++}
++
++/**
++ * Call Google AI Studio's Gemini generateContent endpoint with the
++ * caller's own (free-tier) API key. Returns raw assistant text + token
++ * usage; handoff-sentinel parsing happens in `generateReply`.
++ */
++export async function generateGemini(args: ProviderArgs): Promise<ProviderResult> {
++  const { apiKey, model, systemPrompt, messages, timeoutMs } = args
++  const url = `${GEMINI_BASE_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
++
++  let res: Response
++  try {
++    res = await fetch(url, {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({
++        system_instruction: { parts: [{ text: systemPrompt }] },
++        contents: normalizeForGemini(messages),
++        generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS },
++      }),
++      signal: AbortSignal.timeout(timeoutMs),
++    })
++  } catch (err) {
++    throw toNetworkError(err)
++  }
++
++  const data = (await res.json().catch(() => null)) as GeminiResponse | null
++
++  if (!res.ok) {
++    throw geminiHttpError(res.status, data)
++  }
++
++  const text = data?.candidates?.[0]?.content?.parts
++    ?.map((p) => p.text ?? '')
++    .join('')
++    .trim()
++
++  if (!text) {
++    throw new AiError('Gemini returned an empty response.', { code: 'empty_response' })
++  }
++
++  const usage = normalizeUsage({
++    prompt: data?.usageMetadata?.promptTokenCount,
++    completion: data?.usageMetadata?.candidatesTokenCount,
++    total: data?.usageMetadata?.totalTokenCount,
++  })
++
++  return { text, usage }
++}
+diff --git a/src/lib/ai/types.ts b/src/lib/ai/types.ts
+index ac0eebf..1094d80 100644
+--- a/src/lib/ai/types.ts
++++ b/src/lib/ai/types.ts
+@@ -6,7 +6,7 @@
+ // whether the account is on OpenAI or Anthropic.
+ // ============================================================
+ 
+-export type AiProvider = 'openai' | 'anthropic'
++export type AiProvider = 'openai' | 'anthropic' | 'google'
+ 
+ /**
+  * Account AI setup, decrypted and ready to use. Produced by
