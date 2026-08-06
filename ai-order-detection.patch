@@ -1,0 +1,283 @@
+diff --git a/src/lib/ai/auto-reply.ts b/src/lib/ai/auto-reply.ts
+index df758f9..b63e667 100644
+--- a/src/lib/ai/auto-reply.ts
++++ b/src/lib/ai/auto-reply.ts
+@@ -112,7 +112,7 @@ export async function dispatchInboundToAiReply(
+       knowledge,
+     })
+ 
+-    const { text, handoff, usage } = await generateReply({
++    const { text, handoff, usage, order } = await generateReply({
+       config,
+       systemPrompt,
+       messages,
+@@ -187,6 +187,48 @@ export async function dispatchInboundToAiReply(
+       text,
+       aiGenerated: true,
+     })
++
++    // The model reported a completed order (see the [[ORDER ...]]
++    // sentinel taught in the system prompt) — log it as a deal on the
++    // account's first pipeline so a human can follow up and finalize
++    // it. Best-effort: a failure here must not affect the customer's
++    // reply, which already sent above.
++    if (order) {
++      try {
++        const { data: pipeline } = await db
++          .from('pipelines')
++          .select('id, pipeline_stages(id, position)')
++          .eq('account_id', accountId)
++          .order('created_at', { ascending: true })
++          .limit(1)
++          .maybeSingle()
++        const stages = (pipeline?.pipeline_stages ?? []) as { id: string; position: number }[]
++        const firstStage = stages.sort((a, b) => a.position - b.position)[0]
++        const { data: acct } = await db
++          .from('accounts')
++          .select('default_currency')
++          .eq('id', accountId)
++          .maybeSingle()
++
++        if (pipeline?.id && firstStage?.id) {
++          await db.from('deals').insert({
++            account_id: accountId,
++            user_id: configOwnerUserId,
++            pipeline_id: pipeline.id,
++            stage_id: firstStage.id,
++            contact_id: contactId,
++            title: `AI order: ${order.item}${order.qty > 1 ? ` x${order.qty}` : ''}`,
++            value: order.value,
++            currency: acct?.default_currency ?? 'USD',
++            status: 'open',
++          })
++        } else {
++          console.warn('[ai auto-reply] order detected but account has no pipeline/stage to file it in')
++        }
++      } catch (err) {
++        console.error('[ai auto-reply] failed to log AI-detected order as a deal:', err)
++      }
++    }
+   } catch (err) {
+     console.error('[ai auto-reply] dispatch failed:', err)
+   }
+diff --git a/src/lib/ai/defaults.ts b/src/lib/ai/defaults.ts
+index a212a25..b3cfeb2 100644
+--- a/src/lib/ai/defaults.ts
++++ b/src/lib/ai/defaults.ts
+@@ -13,6 +13,7 @@ import type { AiProvider } from './types'
+ export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
+   openai: 'gpt-5.4-mini',
+   anthropic: 'claude-haiku-4-5-20251001',
++  google: 'gemini-3.5-flash-lite',
+ }
+ 
+ /**
+@@ -22,6 +23,60 @@ export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
+  */
+ export const HANDOFF_SENTINEL = '[[HANDOFF]]'
+ 
++/**
++ * Sentinel the model emits (auto-reply mode only) once it has collected
++ * everything needed to log a placed order as a CRM deal: item(s) +
++ * quantity, the total price (which the model itself calculates from the
++ * pricing already given to it in the account's own system prompt — kept
++ * generic here rather than hardcoding any one business's price list),
++ * and the customer's name/phone/address. Parsed and stripped by
++ * `generateReply`; never shown to the customer.
++ */
++const ORDER_SENTINEL_PATTERN = /\[\[ORDER\s+((?:\w+="[^"]*"\s*)+)\]\]/
++
++export interface ParsedOrder {
++  item: string
++  qty: number
++  value: number
++  name?: string
++  phone?: string
++  address?: string
++}
++
++/** Strip an `[[ORDER ...]]` sentinel out of raw model text and parse its
++ *  attributes. Returns the cleaned text either way; `order` is null when
++ *  no sentinel was present or it was missing a required field. */
++export function parseOrderSentinel(raw: string): { text: string; order: ParsedOrder | null } {
++  const match = raw.match(ORDER_SENTINEL_PATTERN)
++  if (!match) return { text: raw.trim(), order: null }
++
++  const attrs: Record<string, string> = {}
++  const attrRegex = /(\w+)="([^"]*)"/g
++  let m: RegExpExecArray | null
++  while ((m = attrRegex.exec(match[1])) !== null) {
++    attrs[m[1]] = m[2]
++  }
++
++  const text = raw.replace(match[0], '').trim()
++  const qty = Number(attrs.qty)
++  const value = Number(attrs.value)
++  if (!attrs.item || !Number.isFinite(qty) || !Number.isFinite(value) || value < 0) {
++    return { text, order: null }
++  }
++
++  return {
++    text,
++    order: {
++      item: attrs.item,
++      qty,
++      value,
++      name: attrs.name || undefined,
++      phone: attrs.phone || undefined,
++      address: attrs.address || undefined,
++    },
++  }
++}
++
+ /** Cap on generated reply length — keeps WhatsApp replies short and
+  *  bounds token spend on the caller's own key. */
+ export const MAX_OUTPUT_TOKENS = 1024
+@@ -70,6 +125,11 @@ export function buildSystemPrompt(args: {
+     parts.push(
+       `You are replying automatically with no human in the loop. If you cannot confidently and safely help — the customer explicitly asks for a human, is upset or complaining, or the request needs information you do not have — reply with exactly ${HANDOFF_SENTINEL} and nothing else. A human agent will then take over. Prefer handing off over guessing.`,
+     )
++    parts.push(
++      'When the customer has clearly confirmed they want to place an order and you now have all of: the specific item(s) and quantity, the total price, their name, phone number, and delivery address, write your normal customer-facing reply first, then on its own new line after it add exactly one line in this format: ' +
++        '[[ORDER item="<item name and quantity>" qty=<number> value=<total price as a plain number, no currency symbol or thousands separator> name="<customer name>" phone="<phone>" address="<delivery address>"]] ' +
++        'This line is stripped out automatically before the customer sees your message. Calculate value yourself from the pricing given to you above — never guess it. Only include this line once per order, the first time every detail is confirmed; do not repeat it on later messages about the same order.',
++    )
+   }
+ 
+   if (userPrompt && userPrompt.trim()) {
+diff --git a/src/lib/ai/generate.test.ts b/src/lib/ai/generate.test.ts
+index 3b6a452..3943628 100644
+--- a/src/lib/ai/generate.test.ts
++++ b/src/lib/ai/generate.test.ts
+@@ -44,6 +44,7 @@ describe('parseGeneration', () => {
+       text: 'Hello there',
+       handoff: false,
+       usage: null,
++      order: null,
+     })
+   })
+ 
+@@ -52,11 +53,13 @@ describe('parseGeneration', () => {
+       text: '',
+       handoff: true,
+       usage: null,
++      order: null,
+     })
+     expect(parseGeneration('Let me get a human [[HANDOFF]]')).toEqual({
+       text: 'Let me get a human',
+       handoff: true,
+       usage: null,
++      order: null,
+     })
+   })
+ 
+@@ -66,6 +69,7 @@ describe('parseGeneration', () => {
+       text: 'Hi',
+       handoff: false,
+       usage,
++      order: null,
+     })
+   })
+ })
+@@ -90,6 +94,7 @@ describe('generateReply — OpenAI', () => {
+       text: 'Sure — happy to help!',
+       handoff: false,
+       usage: { promptTokens: 42, completionTokens: 8, totalTokens: 50 },
++      order: null,
+     })
+     const [url, opts] = fetchMock.mock.calls[0]
+     expect(url).toContain('api.openai.com')
+@@ -149,6 +154,7 @@ describe('generateReply — Anthropic', () => {
+       text: 'Hi there!',
+       handoff: false,
+       usage: { promptTokens: 30, completionTokens: 6, totalTokens: 36 },
++      order: null,
+     })
+     const [url, opts] = fetchMock.mock.calls[0]
+     expect(url).toContain('api.anthropic.com')
+diff --git a/src/lib/ai/generate.ts b/src/lib/ai/generate.ts
+index 31315b2..f8d6a20 100644
+--- a/src/lib/ai/generate.ts
++++ b/src/lib/ai/generate.ts
+@@ -5,9 +5,10 @@ import {
+   type ChatMessage,
+   type GenerateResult,
+ } from './types'
+-import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults'
++import { HANDOFF_SENTINEL, aiRequestTimeoutMs, parseOrderSentinel } from './defaults'
+ import { generateOpenAi } from './providers/openai'
+ import { generateAnthropic } from './providers/anthropic'
++import { generateGemini } from './providers/gemini'
+ 
+ export interface GenerateArgs {
+   config: AiConfig
+@@ -41,6 +42,9 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
+     case 'anthropic':
+       result = await generateAnthropic(providerArgs)
+       break
++    case 'google':
++      result = await generateGemini(providerArgs)
++      break
+     default:
+       throw new AiError(`Unsupported AI provider: ${config.provider}`, {
+         code: 'unsupported_provider',
+@@ -52,17 +56,21 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
+ }
+ 
+ /**
+- * Split the raw model output into `{ text, handoff, usage }`. The
+- * sentinel can appear alone or trailing a partial reply; either way we
+- * treat the turn as a handoff and strip the marker from any remaining
+- * text. `usage` is passed straight through (null when the provider
+- * didn't report it).
++ * Split the raw model output into `{ text, handoff, usage, order }`. The
++ * handoff sentinel can appear alone or trailing a partial reply; either
++ * way we treat the turn as a handoff and strip the marker from any
++ * remaining text — a handoff turn never also reports an order. `usage`
++ * is passed straight through (null when the provider didn't report it).
+  */
+ export function parseGeneration(
+   raw: string,
+   usage: AiUsage | null = null,
+ ): GenerateResult {
+   const handoff = raw.includes(HANDOFF_SENTINEL)
+-  const text = raw.split(HANDOFF_SENTINEL).join('').trim()
+-  return { text, handoff, usage }
++  const withoutHandoff = raw.split(HANDOFF_SENTINEL).join('').trim()
++  if (handoff) {
++    return { text: withoutHandoff, handoff, usage, order: null }
++  }
++  const { text, order } = parseOrderSentinel(withoutHandoff)
++  return { text, handoff, usage, order }
+ }
+diff --git a/src/lib/ai/types.ts b/src/lib/ai/types.ts
+index ac0eebf..e13503d 100644
+--- a/src/lib/ai/types.ts
++++ b/src/lib/ai/types.ts
+@@ -6,7 +6,7 @@
+ // whether the account is on OpenAI or Anthropic.
+ // ============================================================
+ 
+-export type AiProvider = 'openai' | 'anthropic'
++export type AiProvider = 'openai' | 'anthropic' | 'google'
+ 
+ /**
+  * Account AI setup, decrypted and ready to use. Produced by
+@@ -54,6 +54,8 @@ export interface ProviderResult {
+   usage: AiUsage | null
+ }
+ 
++import type { ParsedOrder } from './defaults'
++
+ /** Outcome of a generation call. */
+ export interface GenerateResult {
+   /** The reply text, with any handoff sentinel stripped. */
+@@ -62,6 +64,8 @@ export interface GenerateResult {
+   handoff: boolean
+   /** Provider token usage for this call, or null when unavailable. */
+   usage: AiUsage | null
++  /** Parsed order the model reported ready to log, or null. */
++  order: ParsedOrder | null
+ }
+ 
+ /**
