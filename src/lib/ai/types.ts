@@ -54,6 +54,8 @@ export interface ProviderResult {
   usage: AiUsage | null
 }
 
+import type { ParsedOrder } from './defaults'
+
 /** Outcome of a generation call. */
 export interface GenerateResult {
   /** The reply text, with any handoff sentinel stripped. */
@@ -62,6 +64,8 @@ export interface GenerateResult {
   handoff: boolean
   /** Provider token usage for this call, or null when unavailable. */
   usage: AiUsage | null
+  /** Parsed order the model reported ready to log, or null. */
+  order: ParsedOrder | null
 }
 
 /**

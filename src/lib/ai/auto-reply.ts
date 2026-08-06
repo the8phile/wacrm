@@ -112,7 +112,7 @@ export async function dispatchInboundToAiReply(
       knowledge,
     })
 
-    const { text, handoff, usage } = await generateReply({
+    const { text, handoff, usage, order } = await generateReply({
       config,
       systemPrompt,
       messages,
@@ -187,6 +187,48 @@ export async function dispatchInboundToAiReply(
       text,
       aiGenerated: true,
     })
+
+    // The model reported a completed order (see the [[ORDER ...]]
+    // sentinel taught in the system prompt) — log it as a deal on the
+    // account's first pipeline so a human can follow up and finalize
+    // it. Best-effort: a failure here must not affect the customer's
+    // reply, which already sent above.
+    if (order) {
+      try {
+        const { data: pipeline } = await db
+          .from('pipelines')
+          .select('id, pipeline_stages(id, position)')
+          .eq('account_id', accountId)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        const stages = (pipeline?.pipeline_stages ?? []) as { id: string; position: number }[]
+        const firstStage = stages.sort((a, b) => a.position - b.position)[0]
+        const { data: acct } = await db
+          .from('accounts')
+          .select('default_currency')
+          .eq('id', accountId)
+          .maybeSingle()
+
+        if (pipeline?.id && firstStage?.id) {
+          await db.from('deals').insert({
+            account_id: accountId,
+            user_id: configOwnerUserId,
+            pipeline_id: pipeline.id,
+            stage_id: firstStage.id,
+            contact_id: contactId,
+            title: `AI order: ${order.item}${order.qty > 1 ? ` x${order.qty}` : ''}`,
+            value: order.value,
+            currency: acct?.default_currency ?? 'USD',
+            status: 'open',
+          })
+        } else {
+          console.warn('[ai auto-reply] order detected but account has no pipeline/stage to file it in')
+        }
+      } catch (err) {
+        console.error('[ai auto-reply] failed to log AI-detected order as a deal:', err)
+      }
+    }
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)
   }

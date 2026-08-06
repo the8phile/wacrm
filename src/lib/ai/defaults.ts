@@ -13,7 +13,7 @@ import type { AiProvider } from './types'
 export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
   openai: 'gpt-5.4-mini',
   anthropic: 'claude-haiku-4-5-20251001',
-  google: 'gemini-2.0-flash',
+  google: 'gemini-3.5-flash-lite',
 }
 
 /**
@@ -22,6 +22,60 @@ export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
  * stripped by `generateReply`.
  */
 export const HANDOFF_SENTINEL = '[[HANDOFF]]'
+
+/**
+ * Sentinel the model emits (auto-reply mode only) once it has collected
+ * everything needed to log a placed order as a CRM deal: item(s) +
+ * quantity, the total price (which the model itself calculates from the
+ * pricing already given to it in the account's own system prompt — kept
+ * generic here rather than hardcoding any one business's price list),
+ * and the customer's name/phone/address. Parsed and stripped by
+ * `generateReply`; never shown to the customer.
+ */
+const ORDER_SENTINEL_PATTERN = /\[\[ORDER\s+((?:\w+="[^"]*"\s*)+)\]\]/
+
+export interface ParsedOrder {
+  item: string
+  qty: number
+  value: number
+  name?: string
+  phone?: string
+  address?: string
+}
+
+/** Strip an `[[ORDER ...]]` sentinel out of raw model text and parse its
+ *  attributes. Returns the cleaned text either way; `order` is null when
+ *  no sentinel was present or it was missing a required field. */
+export function parseOrderSentinel(raw: string): { text: string; order: ParsedOrder | null } {
+  const match = raw.match(ORDER_SENTINEL_PATTERN)
+  if (!match) return { text: raw.trim(), order: null }
+
+  const attrs: Record<string, string> = {}
+  const attrRegex = /(\w+)="([^"]*)"/g
+  let m: RegExpExecArray | null
+  while ((m = attrRegex.exec(match[1])) !== null) {
+    attrs[m[1]] = m[2]
+  }
+
+  const text = raw.replace(match[0], '').trim()
+  const qty = Number(attrs.qty)
+  const value = Number(attrs.value)
+  if (!attrs.item || !Number.isFinite(qty) || !Number.isFinite(value) || value < 0) {
+    return { text, order: null }
+  }
+
+  return {
+    text,
+    order: {
+      item: attrs.item,
+      qty,
+      value,
+      name: attrs.name || undefined,
+      phone: attrs.phone || undefined,
+      address: attrs.address || undefined,
+    },
+  }
+}
 
 /** Cap on generated reply length — keeps WhatsApp replies short and
  *  bounds token spend on the caller's own key. */
@@ -70,6 +124,11 @@ export function buildSystemPrompt(args: {
   if (mode === 'auto_reply') {
     parts.push(
       `You are replying automatically with no human in the loop. If you cannot confidently and safely help — the customer explicitly asks for a human, is upset or complaining, or the request needs information you do not have — reply with exactly ${HANDOFF_SENTINEL} and nothing else. A human agent will then take over. Prefer handing off over guessing.`,
+    )
+    parts.push(
+      'When the customer has clearly confirmed they want to place an order and you now have all of: the specific item(s) and quantity, the total price, their name, phone number, and delivery address, write your normal customer-facing reply first, then on its own new line after it add exactly one line in this format: ' +
+        '[[ORDER item="<item name and quantity>" qty=<number> value=<total price as a plain number, no currency symbol or thousands separator> name="<customer name>" phone="<phone>" address="<delivery address>"]] ' +
+        'This line is stripped out automatically before the customer sees your message. Calculate value yourself from the pricing given to you above — never guess it. Only include this line once per order, the first time every detail is confirmed; do not repeat it on later messages about the same order.',
     )
   }
 
