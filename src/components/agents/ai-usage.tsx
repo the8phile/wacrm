@@ -218,7 +218,7 @@ export function AiUsageCard() {
           <Bot className="h-4 w-4 text-primary" /> Google AI Studio free tier (Gemini 3.5 Flash-Lite)
         </CardTitle>
         <CardDescription>
-          Reference limits for the free Gemini API key — checked live at{' '}
+          Snapshot from {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} — these numbers are typed in, not li
           
             href="https://ai.dev/rate-limit"
             target="_blank"
@@ -227,7 +227,7 @@ export function AiUsageCard() {
           >
             ai.dev/rate-limit
           </a>
-          . Resets daily at midnight Pacific Time.
+          {' '}for your exact current limits.
         </CardDescription>
       </CardHeader>
       <CardContent>
