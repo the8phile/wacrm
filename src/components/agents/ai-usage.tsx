@@ -100,6 +100,7 @@ export function AiUsageCard() {
   const hasSpend = (data?.totals.total_tokens ?? 0) > 0;
 
   return (
+    <>
     <Card>
       <CardHeader>
         <div className="flex items-start justify-between gap-4">
@@ -210,6 +211,39 @@ export function AiUsageCard() {
         )}
       </CardContent>
     </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Bot className="h-4 w-4 text-primary" /> Google AI Studio free tier (Gemini 3.5 Flash-Lite)
+        </CardTitle>
+        <CardDescription>
+          Reference limits for the free Gemini API key — checked live at{' '}
+          
+            href="https://ai.dev/rate-limit"
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+          >
+            ai.dev/rate-limit
+          </a>
+          . Resets daily at midnight Pacific Time.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Stat label="Requests per day" value="500" />
+          <Stat label="Tokens per minute" value="250,000" />
+          <Stat label="Requests per minute" value="15" />
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          500 requests/day ≈ 500 customer messages the bot can answer per
+          day, for free. A typical small business doing 30–50 conversations
+          a day uses only a fraction of this.
+        </p>
+      </CardContent>
+    </Card>
+    </>
   );
 }
 
