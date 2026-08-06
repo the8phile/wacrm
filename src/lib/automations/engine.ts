@@ -647,6 +647,55 @@ async function resolveConversationId(args: ExecuteArgs): Promise<string> {
   return data.id as string
 }
 
+function levenshtein(a: string, b: string): number {
+  const m = a.length
+  const n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const dp: number[] = new Array(n + 1)
+  for (let j = 0; j <= n; j++) dp[j] = j
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0]
+    dp[0] = i
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j]
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1])
+      prev = temp
+    }
+  }
+  return dp[n]
+}
+
+function fuzzyThreshold(len: number): number {
+  if (len <= 3) return 0
+  if (len <= 7) return 1
+  return 2
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function fuzzyIncludes(haystack: string, needle: string): boolean {
+  if (new RegExp(`\b${escapeRegExp(needle)}\b`).test(haystack)) return true
+  const threshold = fuzzyThreshold(needle.length)
+  if (threshold === 0) return false
+  const words = haystack.split(/\s+/).filter(Boolean)
+  const needleWords = needle.split(/\s+/).filter(Boolean)
+  for (let i = 0; i <= words.length - needleWords.length; i++) {
+    const window = words.slice(i, i + needleWords.length).join(' ')
+    if (Math.abs(window.length - needle.length) > threshold) continue
+    if (levenshtein(window, needle) <= threshold) return true
+  }
+  return false
+}
+
+function fuzzyEquals(a: string, b: string): boolean {
+  if (a === b) return true
+  const threshold = fuzzyThreshold(b.length)
+  return threshold > 0 && levenshtein(a, b) <= threshold
+}
+
 export function triggerMatches(automation: Automation, ctx: AutomationContext | undefined): boolean {
   if (automation.trigger_type === 'keyword_match') {
     const cfg = automation.trigger_config as KeywordMatchTriggerConfig
@@ -656,7 +705,7 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
     const haystack = cfg.case_sensitive ? text : text.toLowerCase()
     return cfg.keywords.some((raw) => {
       const k = cfg.case_sensitive ? raw : raw.toLowerCase()
-      return cfg.match_type === 'exact' ? haystack === k : haystack.includes(k)
+      return cfg.match_type === 'exact' ? fuzzyEquals(haystack, k) : fuzzyIncludes(haystack, k)
     })
   }
 
