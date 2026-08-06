@@ -106,11 +106,27 @@ export async function generateGemini(args: ProviderArgs): Promise<ProviderResult
     throw new AiError('Gemini returned an empty response.', { code: 'empty_response' })
   }
 
-  const usage = normalizeUsage({
+  const reportedUsage = normalizeUsage({
     prompt: data?.usageMetadata?.promptTokenCount,
     completion: data?.usageMetadata?.candidatesTokenCount,
     total: data?.usageMetadata?.totalTokenCount,
   })
+
+  // Gemini doesn't always return usageMetadata (varies by model/response
+  // shape). Rather than silently dropping the usage row, fall back to a
+  // rough ~4-chars-per-token estimate from the actual prompt + response
+  // text, so the account's usage dashboard still reflects real activity.
+  const usage = reportedUsage ?? (() => {
+    const promptChars =
+      systemPrompt.length + messages.reduce((sum, m) => sum + m.content.length, 0)
+    const promptTokens = Math.max(1, Math.round(promptChars / 4))
+    const completionTokens = Math.max(1, Math.round(text.length / 4))
+    return {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+    }
+  })()
 
   return { text, usage }
 }
