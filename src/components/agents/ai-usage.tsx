@@ -219,7 +219,7 @@ export function AiUsageCard() {
         </CardTitle>
         <CardDescription>
           Snapshot from {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} — these numbers are typed in, not live, and Google has changed free-tier limits before. Check{' '}
-          
+          <a
             href="https://ai.dev/rate-limit"
             target="_blank"
             rel="noreferrer"
