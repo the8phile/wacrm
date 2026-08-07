@@ -218,7 +218,7 @@ export function AiUsageCard() {
           <Bot className="h-4 w-4 text-primary" /> Google AI Studio free tier (Gemini 3.5 Flash-Lite)
         </CardTitle>
         <CardDescription>
-          Snapshot from {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} — these numbers are typed in, not li
+          Snapshot from {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} — these numbers are typed in, not live, and Google has changed free-tier limits before. Check{' '}
           
             href="https://ai.dev/rate-limit"
             target="_blank"
@@ -226,8 +226,8 @@ export function AiUsageCard() {
             className="underline"
           >
             ai.dev/rate-limit
-          </a>
-          {' '}for your exact current limits.
+          </a>{' '}
+          for your exact current limits.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -239,7 +239,9 @@ export function AiUsageCard() {
         <p className="mt-3 text-xs text-muted-foreground">
           500 requests/day ≈ 500 customer messages the bot can answer per
           day, for free. A typical small business doing 30–50 conversations
-          a day uses only a fraction of this.
+          a day uses only a fraction of this. If Google changes these
+          limits, this card will not update itself — recheck the link
+          above occasionally.
         </p>
       </CardContent>
     </Card>
