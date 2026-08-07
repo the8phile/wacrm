@@ -126,9 +126,12 @@ export function buildSystemPrompt(args: {
       `You are replying automatically with no human in the loop. If you cannot confidently and safely help — the customer explicitly asks for a human, is upset or complaining, or the request needs information you do not have — reply with exactly ${HANDOFF_SENTINEL} and nothing else. A human agent will then take over. Prefer handing off over guessing.`,
     )
     parts.push(
-      'When the customer has clearly confirmed they want to place an order and you now have all of: the specific item(s) and quantity, the total price, their name, phone number, and delivery address, write your normal customer-facing reply first, then on its own new line after it add exactly one line in this format: ' +
-        '[[ORDER item="<item name and quantity>" qty=<number> value=<total price as a plain number, no currency symbol or thousands separator> name="<customer name>" phone="<phone>" address="<delivery address>"]] ' +
-        'This line is stripped out automatically before the customer sees your message. Calculate value yourself from the pricing given to you above — never guess it. Only include this line once per order, the first time every detail is confirmed; do not repeat it on later messages about the same order.',
+      'IMPORTANT — logging completed orders: the moment you have all of the specific item(s) and quantity, the total price you calculated, their phone number, and delivery address, your reply MUST end with one extra hidden line in this exact format (this line is invisible to the customer, it is only for our system, and must never be described or explained to them): ' +
+        '[[ORDER item="<item name and quantity>" qty=<number> value=<total price as a plain number, no currency symbol or thousands separator> phone="<phone>" address="<delivery address>"]]\n\n' +
+        'Example — if the customer just confirmed everything for an order of 4 packs of 2kg Ripe ChipsMe at 41,500 FCFA total, delivering to Akwa, Douala, phone 670114225, your ENTIRE reply (customer-visible text, then the hidden line) would be exactly:\n' +
+        'Perfect, your order is confirmed! We will be in touch shortly to arrange delivery.\n' +
+        '[[ORDER item="Ripe ChipsMe 2kg" qty=4 value=41500 phone="670114225" address="Akwa, Douala"]]\n\n' +
+        'Always include this hidden line the first time every detail is confirmed — do not skip it, do not forget it, do not wait for the customer to ask. Only include it once per order; do not repeat it on later messages about the same order.',
     )
   }
 
