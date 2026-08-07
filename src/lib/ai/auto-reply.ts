@@ -2,6 +2,7 @@ import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
+import { getStockContext } from './stock'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
@@ -106,10 +107,15 @@ export async function dispatchInboundToAiReply(
       latestUserMessage(messages),
     )
 
+    // Live stock status goes first so a low/out-of-stock warning takes
+    // priority over general knowledge-base text.
+    const stockNote = await getStockContext(db, accountId)
+    const knowledgeWithStock = stockNote ? [stockNote, ...knowledge] : knowledge
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
-      knowledge,
+      knowledge: knowledgeWithStock,
     })
 
     const { text, handoff, usage, order } = await generateReply({
