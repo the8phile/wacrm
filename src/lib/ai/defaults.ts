@@ -32,7 +32,7 @@ export const HANDOFF_SENTINEL = '[[HANDOFF]]'
  * and the customer's name/phone/address. Parsed and stripped by
  * `generateReply`; never shown to the customer.
  */
-const ORDER_SENTINEL_PATTERN = /\[\[ORDER\s+((?:\w+="[^"]*"\s*)+)\]\]/
+const ORDER_SENTINEL_PATTERN = /\[\[ORDER\s+((?:\w+=(?:"[^"]*"|[0-9.]+)\s*)+)\]\]/
 
 export interface ParsedOrder {
   item: string
@@ -45,16 +45,18 @@ export interface ParsedOrder {
 
 /** Strip an `[[ORDER ...]]` sentinel out of raw model text and parse its
  *  attributes. Returns the cleaned text either way; `order` is null when
- *  no sentinel was present or it was missing a required field. */
+ *  no sentinel was present or it was missing a required field. Values
+ *  can be quoted strings (`item="X"`) or bare numbers (`qty=5`) — the
+ *  model is asked for numbers unquoted, so both forms must parse. */
 export function parseOrderSentinel(raw: string): { text: string; order: ParsedOrder | null } {
   const match = raw.match(ORDER_SENTINEL_PATTERN)
   if (!match) return { text: raw.trim(), order: null }
 
   const attrs: Record<string, string> = {}
-  const attrRegex = /(\w+)="([^"]*)"/g
+  const attrRegex = /(\w+)=(?:"([^"]*)"|([0-9.]+))/g
   let m: RegExpExecArray | null
   while ((m = attrRegex.exec(match[1])) !== null) {
-    attrs[m[1]] = m[2]
+    attrs[m[1]] = m[2] ?? m[3]
   }
 
   const text = raw.replace(match[0], '').trim()
