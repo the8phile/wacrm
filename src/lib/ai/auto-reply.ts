@@ -12,6 +12,7 @@ import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
 import { engineSendText, engineSendMedia } from '@/lib/flows/meta-send'
+import { engineSendMessengerText, engineSendMessengerMedia } from '@/lib/messenger/send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 interface DispatchArgs {
@@ -53,6 +54,31 @@ export async function dispatchInboundToAiReply(
 
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
+
+    // Which platform this contact lives on — decides which Send API
+    // (and which stored credentials) `sendText`/`sendPhoto` below use.
+    // Defaults to 'whatsapp' if somehow unset, matching every row that
+    // predates the multi-channel migration.
+    const { data: contactChannelRow } = await db
+      .from('contacts')
+      .select('channel')
+      .eq('id', contactId)
+      .maybeSingle()
+    const channel: 'whatsapp' | 'messenger' = contactChannelRow?.channel === 'messenger' ? 'messenger' : 'whatsapp'
+
+    /** Send the customer-visible text reply on whichever channel this
+     *  conversation is on. */
+    const sendText = (text: string) =>
+      channel === 'messenger'
+        ? engineSendMessengerText({ accountId, conversationId, contactId, text, aiGenerated: true })
+        : engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text, aiGenerated: true })
+
+    /** Send a product photo on whichever channel this conversation is on. */
+    const sendPhoto = (link: string, caption?: string) =>
+      channel === 'messenger'
+        ? engineSendMessengerMedia({ accountId, conversationId, contactId, kind: 'image', url: link })
+        : engineSendMedia({ accountId, userId: configOwnerUserId, conversationId, contactId, kind: 'image', link, caption })
+
 
     // Deterministic, user-configured responders win over the LLM — the
     // caller already excludes messages a Flow consumed. Message-level
@@ -208,14 +234,7 @@ export async function dispatchInboundToAiReply(
     }
     if (claimed !== true) return // lost the per-conversation cap race
 
-    await engineSendText({
-      accountId,
-      userId: configOwnerUserId,
-      conversationId,
-      contactId,
-      text,
-      aiGenerated: true,
-    })
+    await sendText(text)
 
     // The model reported a completed order (see the [[ORDER ...]]
     // sentinel taught in the system prompt) — log it as a deal on the
@@ -275,15 +294,7 @@ export async function dispatchInboundToAiReply(
           .maybeSingle()
 
         if (photo?.image_url) {
-          await engineSendMedia({
-            accountId,
-            userId: configOwnerUserId,
-            conversationId,
-            contactId,
-            kind: 'image',
-            link: photo.image_url,
-            caption: photo.caption ?? undefined,
-          })
+          await sendPhoto(photo.image_url, photo.caption ?? undefined)
         } else {
           // Shouldn't happen — the model was only given names that
           // exist — but a stale/renamed product is possible.
