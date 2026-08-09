@@ -5,7 +5,7 @@ import {
   type ChatMessage,
   type GenerateResult,
 } from './types'
-import { HANDOFF_SENTINEL, aiRequestTimeoutMs, parseOrderSentinel } from './defaults'
+import { HANDOFF_SENTINEL, aiRequestTimeoutMs, parseOrderSentinel, parseImageSentinel } from './defaults'
 import { generateOpenAi } from './providers/openai'
 import { generateAnthropic } from './providers/anthropic'
 import { generateGemini } from './providers/gemini'
@@ -69,8 +69,9 @@ export function parseGeneration(
   const handoff = raw.includes(HANDOFF_SENTINEL)
   const withoutHandoff = raw.split(HANDOFF_SENTINEL).join('').trim()
   if (handoff) {
-    return { text: withoutHandoff, handoff, usage, order: null }
+    return { text: withoutHandoff, handoff, usage, order: null, image: null }
   }
-  const { text, order } = parseOrderSentinel(withoutHandoff)
-  return { text, handoff, usage, order }
+  const { text: withoutOrder, order } = parseOrderSentinel(withoutHandoff)
+  const { text, image } = parseImageSentinel(withoutOrder)
+  return { text, handoff, usage, order, image }
 }

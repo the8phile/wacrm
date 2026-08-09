@@ -3,12 +3,14 @@ import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
 import { getStockContext } from './stock'
+import { getOrderStatusContext } from './order-status'
+import { getProductImageContext } from './product-images'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
-import { engineSendText } from '@/lib/flows/meta-send'
+import { engineSendText, engineSendMedia } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 interface DispatchArgs {
@@ -112,13 +114,27 @@ export async function dispatchInboundToAiReply(
     const stockNote = await getStockContext(db, accountId)
     const knowledgeWithStock = stockNote ? [stockNote, ...knowledge] : knowledge
 
+    // This customer's own order history, so "where is my order?"
+    // gets answered from their real deal/stage instead of a guess.
+    const orderStatusNote = await getOrderStatusContext(db, accountId, contactId)
+    const knowledgeWithOrders = orderStatusNote
+      ? [...knowledgeWithStock, orderStatusNote]
+      : knowledgeWithStock
+
+    // Tells the model exactly which product names have a photo on
+    // file, so it only ever asks to send a real one.
+    const productImageNote = await getProductImageContext(db, accountId)
+    const knowledgeWithImages = productImageNote
+      ? [...knowledgeWithOrders, productImageNote]
+      : knowledgeWithOrders
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
-      knowledge: knowledgeWithStock,
+      knowledge: knowledgeWithImages,
     })
 
-    const { text, handoff, usage, order } = await generateReply({
+    const { text, handoff, usage, order, image } = await generateReply({
       config,
       systemPrompt,
       messages,
@@ -233,6 +249,42 @@ export async function dispatchInboundToAiReply(
         }
       } catch (err) {
         console.error('[ai auto-reply] failed to log AI-detected order as a deal:', err)
+      }
+    }
+
+    // The model asked to send a product photo (see the
+    // [[SEND_IMAGE ...]] sentinel taught in the system prompt) —
+    // look up the account's saved URL for that exact product name
+    // and send it. Best-effort: a failure here must not affect the
+    // customer's text reply, which already sent above.
+    if (image) {
+      try {
+        const { data: photo } = await db
+          .from('product_images')
+          .select('image_url, caption')
+          .eq('account_id', accountId)
+          .eq('product_name', image)
+          .maybeSingle()
+
+        if (photo?.image_url) {
+          await engineSendMedia({
+            accountId,
+            userId: configOwnerUserId,
+            conversationId,
+            contactId,
+            kind: 'image',
+            link: photo.image_url,
+            caption: photo.caption ?? undefined,
+          })
+        } else {
+          // Shouldn't happen — the model was only given names that
+          // exist — but a stale/renamed product is possible.
+          console.warn(
+            `[ai auto-reply] model asked to send image for unknown product "${image}"`,
+          )
+        }
+      } catch (err) {
+        console.error('[ai auto-reply] failed to send product image:', err)
       }
     }
   } catch (err) {

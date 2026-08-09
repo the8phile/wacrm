@@ -34,6 +34,17 @@ export const HANDOFF_SENTINEL = '[[HANDOFF]]'
  */
 const ORDER_SENTINEL_PATTERN = /\[\[ORDER\s+((?:\w+=(?:"[^"]*"|[0-9.]+)\s*)+)\]\]/
 
+/**
+ * Sentinel the model emits (auto-reply mode only) when the customer
+ * asks to see a product — "picture?", "what does it look like?" —
+ * and one of the account's known product photos (see knowledge
+ * context built by `getProductImageContext`) matches. Parsed and
+ * stripped by `generateReply`; never shown to the customer. The
+ * actual WhatsApp image send happens in `dispatchInboundToAiReply`
+ * after this is parsed out.
+ */
+const IMAGE_SENTINEL_PATTERN = /\[\[SEND_IMAGE\s+product="([^"]+)"\]\]/
+
 export interface ParsedOrder {
   item: string
   qty: number
@@ -77,6 +88,16 @@ export function parseOrderSentinel(raw: string): { text: string; order: ParsedOr
       address: attrs.address || undefined,
     },
   }
+}
+
+/** Strip a `[[SEND_IMAGE product="..."]]` sentinel out of raw model
+ *  text and return the requested product name. Returns the cleaned
+ *  text either way; `image` is null when no sentinel was present. */
+export function parseImageSentinel(raw: string): { text: string; image: string | null } {
+  const match = raw.match(IMAGE_SENTINEL_PATTERN)
+  if (!match) return { text: raw.trim(), image: null }
+  const text = raw.replace(match[0], '').trim()
+  return { text, image: match[1] }
 }
 
 /** Cap on generated reply length — keeps WhatsApp replies short and
@@ -134,6 +155,9 @@ export function buildSystemPrompt(args: {
         'Perfect, your order is confirmed! We will be in touch shortly to arrange delivery.\n' +
         '[[ORDER item="Ripe ChipsMe 2kg" qty=4 value=41500 phone="670114225" address="Akwa, Douala"]]\n\n' +
         'Always include this hidden line the first time every detail is confirmed — do not skip it, do not forget it, do not wait for the customer to ask. Only include it once per order; do not repeat it on later messages about the same order.',
+    )
+    parts.push(
+      'IMPORTANT — sending a product photo: if the customer asks to see a product (a picture, what it looks like, etc.) AND that exact product name appears in the "Product photos available" list below, write a short customer-visible reply (e.g. "Sure, here you go!") and end it with one extra hidden line in this exact format: [[SEND_IMAGE product="<exact product name from the list>"]]. This line is invisible to the customer — never mention it or describe it. If the product is NOT in that list, do not use this sentinel — just tell the customer normally that you do not have a photo for that item.',
     )
   }
 
