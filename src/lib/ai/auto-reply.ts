@@ -5,6 +5,7 @@ import { retrieveKnowledge } from './knowledge'
 import { getStockContext } from './stock'
 import { getOrderStatusContext } from './order-status'
 import { getProductImageContext } from './product-images'
+import { getCustomerProfileContext } from './customer-profile'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
@@ -128,10 +129,16 @@ export async function dispatchInboundToAiReply(
       ? [...knowledgeWithOrders, productImageNote]
       : knowledgeWithOrders
 
+    // Who the model is actually talking to — name + repeat-customer
+    // status. Always present (never null), so it always lands last,
+    // closest to the live conversation.
+    const customerProfileNote = await getCustomerProfileContext(db, accountId, contactId)
+    const knowledgeWithProfile = [...knowledgeWithImages, customerProfileNote]
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
-      knowledge: knowledgeWithImages,
+      knowledge: knowledgeWithProfile,
     })
 
     const { text, handoff, usage, order, images } = await generateReply({
