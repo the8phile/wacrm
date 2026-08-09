@@ -31,6 +31,10 @@ interface WhatsAppStatus {
   connected: boolean;
 }
 
+interface MessengerStatus {
+  connected: boolean;
+}
+
 export function SettingsOverview({
   onSelect,
 }: {
@@ -51,6 +55,8 @@ export function SettingsOverview({
   // from blanking the rest of the landing.
   const [whatsapp, setWhatsapp] = useState<WhatsAppStatus | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState(true);
+  const [messenger, setMessenger] = useState<MessengerStatus | null>(null);
+  const [messengerLoading, setMessengerLoading] = useState(true);
 
   useEffect(() => {
     if (!user || !accountId) return;
@@ -136,6 +142,22 @@ export function SettingsOverview({
       setWhatsappLoading(false);
     })();
 
+    // Messenger connection status — independent of WhatsApp's, so one
+    // channel being unconfigured never blocks the other's tile.
+    (async () => {
+      setMessengerLoading(true);
+      try {
+        const res = await fetch('/api/messenger/config', { cache: 'no-store' });
+        const data = await res.json();
+        if (cancelled) return;
+        setMessenger({ connected: !!data?.connected });
+      } catch {
+        if (!cancelled) setMessenger({ connected: false });
+      } finally {
+        if (!cancelled) setMessengerLoading(false);
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -171,6 +193,17 @@ export function SettingsOverview({
         <>
           <StatusDot tone="muted" /> {t('needsReconnecting')}
         </>
+      ),
+    },
+    {
+      section: 'messenger',
+      loading: messengerLoading,
+      subtitle: messenger?.connected ? (
+        <>
+          <StatusDot tone="ok" /> {t('connected')}
+        </>
+      ) : (
+        t('notSetup')
       ),
     },
     {
