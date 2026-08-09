@@ -66,8 +66,9 @@ export interface GenerateResult {
   usage: AiUsage | null
   /** Parsed order the model reported ready to log, or null. */
   order: ParsedOrder | null
-  /** Product name the model asked to send a photo for, or null. */
-  image: string | null
+  /** Product name(s) the model asked to send a photo for, in the
+   *  order requested. Empty when none were asked for. */
+  images: string[]
 }
 
 /**

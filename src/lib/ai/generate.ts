@@ -69,9 +69,9 @@ export function parseGeneration(
   const handoff = raw.includes(HANDOFF_SENTINEL)
   const withoutHandoff = raw.split(HANDOFF_SENTINEL).join('').trim()
   if (handoff) {
-    return { text: withoutHandoff, handoff, usage, order: null, image: null }
+    return { text: withoutHandoff, handoff, usage, order: null, images: [] }
   }
   const { text: withoutOrder, order } = parseOrderSentinel(withoutHandoff)
-  const { text, image } = parseImageSentinel(withoutOrder)
-  return { text, handoff, usage, order, image }
+  const { text, images } = parseImageSentinel(withoutOrder)
+  return { text, handoff, usage, order, images }
 }

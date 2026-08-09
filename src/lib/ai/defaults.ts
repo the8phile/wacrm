@@ -43,7 +43,7 @@ const ORDER_SENTINEL_PATTERN = /\[\[ORDER\s+((?:\w+=(?:"[^"]*"|[0-9.]+)\s*)+)\]\
  * actual WhatsApp image send happens in `dispatchInboundToAiReply`
  * after this is parsed out.
  */
-const IMAGE_SENTINEL_PATTERN = /\[\[SEND_IMAGE\s+product="([^"]+)"\]\]/
+const IMAGE_SENTINEL_PATTERN = /\[\[SEND_IMAGE\s+product="([^"]+)"\]\]/g
 
 export interface ParsedOrder {
   item: string
@@ -90,14 +90,22 @@ export function parseOrderSentinel(raw: string): { text: string; order: ParsedOr
   }
 }
 
-/** Strip a `[[SEND_IMAGE product="..."]]` sentinel out of raw model
- *  text and return the requested product name. Returns the cleaned
- *  text either way; `image` is null when no sentinel was present. */
-export function parseImageSentinel(raw: string): { text: string; image: string | null } {
-  const match = raw.match(IMAGE_SENTINEL_PATTERN)
-  if (!match) return { text: raw.trim(), image: null }
-  const text = raw.replace(match[0], '').trim()
-  return { text, image: match[1] }
+/** Strip every `[[SEND_IMAGE product="..."]]` sentinel out of raw
+ *  model text and return the requested product names, in the order
+ *  the model listed them. A customer can ask to see several items
+ *  in one message, so the model may emit more than one — this must
+ *  catch all of them, not just the first, or the leftover sentinel
+ *  text leaks straight into the customer's message. Returns the
+ *  cleaned text either way; `images` is [] when none were present. */
+export function parseImageSentinel(raw: string): { text: string; images: string[] } {
+  const images: string[] = []
+  const text = raw
+    .replace(IMAGE_SENTINEL_PATTERN, (_match, product: string) => {
+      images.push(product)
+      return ''
+    })
+    .trim()
+  return { text, images }
 }
 
 /** Cap on generated reply length — keeps WhatsApp replies short and
@@ -157,7 +165,7 @@ export function buildSystemPrompt(args: {
         'Always include this hidden line the first time every detail is confirmed — do not skip it, do not forget it, do not wait for the customer to ask. Only include it once per order; do not repeat it on later messages about the same order.',
     )
     parts.push(
-      'IMPORTANT — sending a product photo: if the customer asks to see a product (a picture, what it looks like, etc.) AND that exact product name appears in the "Product photos available" list below, write a short customer-visible reply (e.g. "Sure, here you go!") and end it with one extra hidden line in this exact format: [[SEND_IMAGE product="<exact product name from the list>"]]. This line is invisible to the customer — never mention it or describe it. If the product is NOT in that list, do not use this sentinel — just tell the customer normally that you do not have a photo for that item.',
+      'IMPORTANT — sending a product photo: if the customer asks to see one or more products (a picture, what it looks like, etc.) AND the exact product name appears in the "Product photos available" list below, write a short customer-visible reply (e.g. "Sure, here you go!") and end it with one hidden line PER product requested, each in this exact format: [[SEND_IMAGE product="<exact product name from the list>"]]. Example — customer asks for photos of two items: your reply is the visible sentence, then on the lines after it: [[SEND_IMAGE product="Ripe ChipsMe 2kg"]] followed immediately by [[SEND_IMAGE product="Peanuts 1kg"]]. These lines are invisible to the customer — never mention them, describe them, or say the number of photos out loud. If a requested product is NOT in that list, skip the sentinel for that one item only — just tell the customer normally you do not have a photo for it, while still sending sentinels for any others that do match.',
     )
   }
 

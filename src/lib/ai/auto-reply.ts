@@ -134,7 +134,7 @@ export async function dispatchInboundToAiReply(
       knowledge: knowledgeWithImages,
     })
 
-    const { text, handoff, usage, order, image } = await generateReply({
+    const { text, handoff, usage, order, images } = await generateReply({
       config,
       systemPrompt,
       messages,
@@ -252,18 +252,19 @@ export async function dispatchInboundToAiReply(
       }
     }
 
-    // The model asked to send a product photo (see the
-    // [[SEND_IMAGE ...]] sentinel taught in the system prompt) —
-    // look up the account's saved URL for that exact product name
-    // and send it. Best-effort: a failure here must not affect the
-    // customer's text reply, which already sent above.
-    if (image) {
+    // The model asked to send one or more product photos (see the
+    // [[SEND_IMAGE ...]] sentinels taught in the system prompt) —
+    // look up each account-saved URL and send them one at a time.
+    // Best-effort per photo: one failing must not stop the others,
+    // and none of this affects the customer's text reply, which
+    // already sent above.
+    for (const productName of images) {
       try {
         const { data: photo } = await db
           .from('product_images')
           .select('image_url, caption')
           .eq('account_id', accountId)
-          .eq('product_name', image)
+          .eq('product_name', productName)
           .maybeSingle()
 
         if (photo?.image_url) {
@@ -280,11 +281,11 @@ export async function dispatchInboundToAiReply(
           // Shouldn't happen — the model was only given names that
           // exist — but a stale/renamed product is possible.
           console.warn(
-            `[ai auto-reply] model asked to send image for unknown product "${image}"`,
+            `[ai auto-reply] model asked to send image for unknown product "${productName}"`,
           )
         }
       } catch (err) {
-        console.error('[ai auto-reply] failed to send product image:', err)
+        console.error(`[ai auto-reply] failed to send product image "${productName}":`, err)
       }
     }
   } catch (err) {
