@@ -1,7 +1,7 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
-import { Loader2, ShieldAlert, MessageCircle, PlugZap } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Loader2, ShieldAlert, MessageCircle, PlugZap, Search, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface AdminAccountRow {
   id: string;
@@ -15,17 +15,30 @@ interface AdminAccountRow {
   messenger_connected: boolean;
 }
 
+type ChannelFilter = 'all' | 'whatsapp' | 'messenger' | 'none';
+type SortColumn = 'name' | 'contact_count' | 'message_count' | 'created_at';
+type SortDirection = 'asc' | 'desc';
+
 /**
  * Platform admin dashboard — every account on the whole platform,
  * with basic activity stats. Gated by `requirePlatformAdmin()` on
  * the API side (see /api/admin/accounts); this page itself just
  * renders whatever that endpoint returns, or the 403 it sends back
  * for anyone who isn't a platform admin.
+ *
+ * Search/filter/sort all happen client-side against the full list —
+ * fine at today's account counts. Worth moving server-side (with
+ * pagination) once this grows past a few hundred accounts.
  */
 export default function AdminDashboardPage() {
   const [accounts, setAccounts] = useState<AdminAccountRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('created_at');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   useEffect(() => {
     fetch('/api/admin/accounts')
@@ -40,6 +53,42 @@ export default function AdminDashboardPage() {
       .catch((err) => setError(err.message ?? 'Failed to load accounts'))
       .finally(() => setLoading(false));
   }, []);
+
+  const visibleAccounts = useMemo(() => {
+    if (!accounts) return [];
+
+    const query = searchQuery.trim().toLowerCase();
+    let rows = accounts.filter((a) => {
+      if (query) {
+        const haystack = `${a.name} ${a.owner_name ?? ''} ${a.owner_email ?? ''}`.toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+      if (channelFilter === 'whatsapp' && !a.whatsapp_connected) return false;
+      if (channelFilter === 'messenger' && !a.messenger_connected) return false;
+      if (channelFilter === 'none' && (a.whatsapp_connected || a.messenger_connected)) return false;
+      return true;
+    });
+
+    rows = [...rows].sort((a, b) => {
+      let cmp = 0;
+      if (sortColumn === 'name') cmp = a.name.localeCompare(b.name);
+      else if (sortColumn === 'contact_count') cmp = a.contact_count - b.contact_count;
+      else if (sortColumn === 'message_count') cmp = a.message_count - b.message_count;
+      else if (sortColumn === 'created_at') cmp = a.created_at.localeCompare(b.created_at);
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+
+    return rows;
+  }, [accounts, searchQuery, channelFilter, sortColumn, sortDirection]);
+
+  const toggleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+  };
 
   if (loading) {
     return (
@@ -83,20 +132,49 @@ export default function AdminDashboardPage() {
           <StatCard label="Total messages" value={totalMessages} />
         </div>
 
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name or email…"
+              className="w-full rounded-lg border border-border bg-muted py-2 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+            />
+          </div>
+
+          <div className="flex gap-1 rounded-lg border border-border bg-muted p-1">
+            {(['all', 'whatsapp', 'messenger', 'none'] as ChannelFilter[]).map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setChannelFilter(filter)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                  channelFilter === filter
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {filter === 'none' ? 'No channel' : filter}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50 text-left text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Account</th>
+                <SortableHeader label="Account" column="name" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
                 <th className="px-4 py-3 font-medium">Owner</th>
                 <th className="px-4 py-3 font-medium">Channels</th>
-                <th className="px-4 py-3 font-medium">Contacts</th>
-                <th className="px-4 py-3 font-medium">Messages</th>
-                <th className="px-4 py-3 font-medium">Created</th>
+                <SortableHeader label="Contacts" column="contact_count" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader label="Messages" column="message_count" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader label="Created" column="created_at" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
               </tr>
             </thead>
             <tbody>
-              {accounts?.map((account) => (
+              {visibleAccounts.map((account) => (
                 <tr key={account.id} className="border-b border-border last:border-0">
                   <td className="px-4 py-3 font-medium text-foreground">{account.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">
@@ -119,10 +197,10 @@ export default function AdminDashboardPage() {
                   </td>
                 </tr>
               ))}
-              {accounts?.length === 0 && (
+              {visibleAccounts.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                    No accounts yet.
+                    {accounts?.length === 0 ? 'No accounts yet.' : 'No accounts match your search/filter.'}
                   </td>
                 </tr>
               )}
@@ -140,5 +218,37 @@ function StatCard({ label, value }: { label: string; value: number }) {
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
     </div>
+  );
+}
+
+function SortableHeader({
+  label,
+  column,
+  current,
+  direction,
+  onSort,
+}: {
+  label: string;
+  column: SortColumn;
+  current: SortColumn;
+  direction: SortDirection;
+  onSort: (column: SortColumn) => void;
+}) {
+  const isActive = current === column;
+  return (
+    <th className="px-4 py-3 font-medium">
+      <button
+        onClick={() => onSort(column)}
+        className="flex items-center gap-1 hover:text-foreground"
+      >
+        {label}
+        {isActive &&
+          (direction === 'asc' ? (
+            <ArrowUp className="size-3" />
+          ) : (
+            <ArrowDown className="size-3" />
+          ))}
+      </button>
+    </th>
   );
 }
