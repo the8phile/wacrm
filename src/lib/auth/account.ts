@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // Server-side account context — for API routes and server
 // components. Reads the caller's profile + account in one round
 // trip and verifies role on demand.
@@ -187,4 +187,47 @@ export async function requireRole(min: AccountRole): Promise<AccountContext> {
     );
   }
   return ctx;
+}
+
+// ------------------------------------------------------------
+// Platform admin context
+//
+// Separate from account roles entirely — a user in
+// `platform_admins` can see across every account on the whole
+// platform (for the /admin dashboard), regardless of what role
+// they hold (if any) inside any single account.
+// ------------------------------------------------------------
+
+export interface PlatformAdminContext {
+  supabase: SupabaseClient<any, any, any>;
+  userId: string;
+}
+
+/**
+ * Resolve the caller's session and verify they're a platform admin.
+ * Throws `UnauthorizedError` if not signed in, `ForbiddenError` if
+ * signed in but not a platform admin.
+ */
+export async function requirePlatformAdmin(): Promise<PlatformAdminContext> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser();
+  if (userErr || !user) {
+    throw new UnauthorizedError();
+  }
+
+  const { data: adminRow } = await supabase
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!adminRow) {
+    throw new ForbiddenError("Platform admin access required");
+  }
+
+  return { supabase, userId: user.id };
 }
