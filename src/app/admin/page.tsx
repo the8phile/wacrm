@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Loader2, ShieldAlert, MessageCircle, PlugZap, Search, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface AdminAccountRow {
@@ -175,8 +176,12 @@ export default function AdminDashboardPage() {
             </thead>
             <tbody>
               {visibleAccounts.map((account) => (
-                <tr key={account.id} className="border-b border-border last:border-0">
-                  <td className="px-4 py-3 font-medium text-foreground">{account.name}</td>
+                <tr key={account.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                  <td className="px-4 py-3 font-medium text-foreground">
+                    <Link href={`/admin/accounts/${account.id}`} className="hover:text-primary hover:underline">
+                      {account.name}
+                    </Link>
+                  </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {account.owner_name || account.owner_email || '—'}
                   </td>
