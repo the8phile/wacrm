@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -14,6 +14,7 @@ interface AdminAccountRow {
   message_count: number;
   whatsapp_connected: boolean;
   messenger_connected: boolean;
+  last_activity_at: string | null;
 }
 
 type ChannelFilter = 'all' | 'whatsapp' | 'messenger' | 'none';
@@ -168,6 +169,7 @@ export default function AdminDashboardPage() {
               <tr className="border-b border-border bg-muted/50 text-left text-muted-foreground">
                 <SortableHeader label="Account" column="name" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
                 <th className="px-4 py-3 font-medium">Owner</th>
+                <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Channels</th>
                 <SortableHeader label="Contacts" column="contact_count" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
                 <SortableHeader label="Messages" column="message_count" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
@@ -184,6 +186,9 @@ export default function AdminDashboardPage() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {account.owner_name || account.owner_email || '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge lastActivityAt={account.last_activity_at} />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -204,7 +209,7 @@ export default function AdminDashboardPage() {
               ))}
               {visibleAccounts.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                     {accounts?.length === 0 ? 'No accounts yet.' : 'No accounts match your search/filter.'}
                   </td>
                 </tr>
@@ -223,6 +228,50 @@ function StatCard({ label, value }: { label: string; value: number }) {
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
     </div>
+  );
+}
+
+/** Pure helper, not a component — keeps Date.now() out of any
+ *  component's render body per the react-hooks/purity rule. */
+function daysSince(dateStr: string): number {
+  return (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24);
+}
+
+/**
+ * Simple activity-recency badge: Active (message within 7 days),
+ * Quiet (8–30 days), Inactive (30+ days or never messaged). Purely
+ * a visual signal for where to look first — not a stored status,
+ * so it always reflects the real data live.
+ */
+function StatusBadge({ lastActivityAt }: { lastActivityAt: string | null }) {
+  if (!lastActivityAt) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="size-1.5 rounded-full bg-muted-foreground/40" /> No activity
+      </span>
+    );
+  }
+
+  const days = daysSince(lastActivityAt);
+
+  if (days <= 7) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-green-500">
+        <span className="size-1.5 rounded-full bg-green-500" /> Active
+      </span>
+    );
+  }
+  if (days <= 30) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-yellow-500">
+        <span className="size-1.5 rounded-full bg-yellow-500" /> Quiet
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="size-1.5 rounded-full bg-muted-foreground/40" /> Inactive
+    </span>
   );
 }
 

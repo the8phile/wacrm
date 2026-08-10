@@ -1,4 +1,4 @@
-﻿import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { requirePlatformAdmin, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 
@@ -46,6 +46,7 @@ export async function GET() {
         { data: whatsappConfig },
         { data: messengerConfig },
         { data: ownerProfile },
+        { data: lastConversation },
       ] = await Promise.all([
         db.from('contacts').select('id', { count: 'exact', head: true }).eq('account_id', account.id),
         db
@@ -55,6 +56,13 @@ export async function GET() {
         db.from('whatsapp_config').select('status').eq('account_id', account.id).maybeSingle(),
         db.from('messenger_config').select('status').eq('account_id', account.id).maybeSingle(),
         db.from('profiles').select('email, full_name').eq('user_id', account.owner_user_id).maybeSingle(),
+        db
+          .from('conversations')
+          .select('last_message_at')
+          .eq('account_id', account.id)
+          .order('last_message_at', { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle(),
       ])
 
       return {
@@ -67,6 +75,7 @@ export async function GET() {
         message_count: messageCount ?? 0,
         whatsapp_connected: whatsappConfig?.status === 'connected',
         messenger_connected: messengerConfig?.status === 'connected',
+        last_activity_at: lastConversation?.last_message_at ?? null,
       }
     }),
   )
