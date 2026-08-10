@@ -119,11 +119,19 @@ export default function AdminDashboardPage() {
   return (
     <div className="min-h-screen bg-background px-6 py-8">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-foreground">Platform Admin</h1>
-          <p className="text-sm text-muted-foreground">
-            {accounts?.length ?? 0} account{accounts?.length === 1 ? '' : 's'} total
-          </p>
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground">Platform Admin</h1>
+            <p className="text-sm text-muted-foreground">
+              {accounts?.length ?? 0} account{accounts?.length === 1 ? '' : 's'} total
+            </p>
+          </div>
+          <Link
+            href="/admin/team"
+            className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            Manage admins
+          </Link>
         </div>
 
         <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
