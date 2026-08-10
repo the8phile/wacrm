@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useState } from 'react';
 import { Loader2, ShieldAlert, MessageCircle, PlugZap } from 'lucide-react';
