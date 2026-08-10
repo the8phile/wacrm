@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import {
   checkRateLimit,
@@ -10,6 +10,8 @@ import {
   validateSendMessageParams,
   SendMessageError,
 } from '@/lib/whatsapp/send-message'
+import { engineSendMessengerText, engineSendMessengerMedia } from '@/lib/messenger/send'
+import type { MessengerMediaKind } from '@/lib/messenger/meta-api'
 
 // The dashboard's outbound-send endpoint. It owns auth, per-user rate
 // limiting, and the two ways the UI targets a thread — an existing
@@ -165,6 +167,60 @@ export async function POST(request: Request) {
         { error: 'Conversation not found' },
         { status: 404 }
       )
+    }
+
+    // This one Send endpoint serves every channel's conversations — the
+    // Inbox UI has no idea which platform a thread is on, it just POSTs
+    // here. WhatsApp-only concepts (templates, interactive payloads,
+    // Meta's phone-variant retry) don't apply to Messenger, so a
+    // Messenger conversation branches to its own lightweight path here
+    // rather than going through `sendMessageToConversation`.
+    const { data: convForChannel } = await supabase
+      .from('conversations')
+      .select('contact_id, channel')
+      .eq('id', conversationId)
+      .maybeSingle()
+
+    if (convForChannel?.channel === 'messenger') {
+      if (message_type === 'template' || message_type === 'interactive') {
+        return NextResponse.json(
+          { error: `${message_type} messages aren't supported on Messenger` },
+          { status: 400 },
+        )
+      }
+      if (!convForChannel.contact_id) {
+        return NextResponse.json({ error: 'Conversation has no contact' }, { status: 404 })
+      }
+
+      try {
+        if (message_type === 'text') {
+          const result = await engineSendMessengerText({
+            accountId,
+            conversationId,
+            contactId: convForChannel.contact_id,
+            text: content_text,
+          })
+          return NextResponse.json({ success: true, message_id: result.message_id })
+        }
+
+        // Every other allowed message_type is a media kind (image,
+        // video, document, audio) — Messenger's Send API uses 'file'
+        // where WhatsApp says 'document'; every other kind name matches.
+        const messengerKind: MessengerMediaKind =
+          message_type === 'document' ? 'file' : (message_type as MessengerMediaKind)
+        const result = await engineSendMessengerMedia({
+          accountId,
+          conversationId,
+          contactId: convForChannel.contact_id,
+          kind: messengerKind,
+          url: media_url,
+        })
+        return NextResponse.json({ success: true, message_id: result.message_id })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to send Messenger message'
+        console.error('[whatsapp/send] messenger send failed:', err)
+        return NextResponse.json({ error: message }, { status: 500 })
+      }
     }
 
     // Delegate to the shared send core (validates, sends to Meta with
