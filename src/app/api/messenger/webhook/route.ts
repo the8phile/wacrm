@@ -84,7 +84,15 @@ export async function POST(request: Request) {
 
   const signature = request.headers.get('x-hub-signature-256')
   if (!verifyMetaWebhookSignature(rawBody, signature, 'META_MESSENGER_APP_SECRET')) {
-    await debugLog('signature_failed', signature ?? 'no signature header')
+    // Report exactly what secret the server actually sees — length and
+    // first/last 2 chars only (never the full value) — so a mismatch
+    // between "what was saved" and "what's deployed" is provable
+    // without exposing the secret itself.
+    const seen = process.env.META_MESSENGER_APP_SECRET
+    const fingerprint = seen
+      ? `len=${seen.length} starts=${seen.slice(0, 2)} ends=${seen.slice(-2)}`
+      : 'UNSET'
+    await debugLog('signature_failed', `sig=${signature ?? 'none'} secret_seen=[${fingerprint}]`)
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
   await debugLog('signature_ok')
