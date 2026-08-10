@@ -1,4 +1,4 @@
-import { supabaseAdmin } from './admin-client'
+﻿import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
@@ -272,6 +272,21 @@ export async function dispatchInboundToAiReply(
           })
         } else {
           console.warn('[ai auto-reply] order detected but account has no pipeline/stage to file it in')
+        }
+
+        // Messenger has no phone number on the contact record at all
+        // (the platform never exposes one via its API) — this is the
+        // one natural moment a Messenger customer's real phone number
+        // becomes known, since the AI just asked for it to complete
+        // the order. Save it so future messages have it on file.
+        // WhatsApp contacts already have their real phone as their
+        // account identity, so this only applies to Messenger.
+        if (order.phone && channel === 'messenger') {
+          await db
+            .from('contacts')
+            .update({ phone: order.phone })
+            .eq('id', contactId)
+            .is('phone', null)
         }
       } catch (err) {
         console.error('[ai auto-reply] failed to log AI-detected order as a deal:', err)
