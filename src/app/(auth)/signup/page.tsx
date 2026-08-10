@@ -70,9 +70,15 @@ function SignupPageInner() {
     // email back at the join page so the user can accept after
     // verifying. Without a token, Supabase uses its default
     // redirect (the app root).
+    // Always pin the confirmation-email redirect to THIS app's own
+    // origin. Without this, Supabase falls back to the project's
+    // shared Site URL default — and since this Supabase project is
+    // shared with another app (BillSafe), that default points there
+    // instead of here, sending new wacrm users to the wrong site
+    // after they click "confirm".
     const emailRedirectTo = inviteToken
       ? `${window.location.origin}/join/${encodeURIComponent(inviteToken)}`
-      : undefined;
+      : `${window.location.origin}/login`;
 
     const { error } = await supabase.auth.signUp({
       email,
