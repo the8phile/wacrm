@@ -66,19 +66,41 @@ export async function GET(request: Request) {
 // POST — inbound messages + delivery/read events.
 export async function POST(request: Request) {
   const rawBody = await request.text()
+
+  // TEMPORARY debug aid — logs every stage of processing to a table
+  // so delivery can be confirmed directly via SQL, independent of
+  // Meta's own error panel (which only tracks verification issues,
+  // not delivery/signature failures) and of Vercel log access.
+  const debugLog = async (stage: string, detail?: string) => {
+    try {
+      await supabaseAdmin()
+        .from('messenger_webhook_debug')
+        .insert({ stage, detail: detail ?? null, raw_body: rawBody.slice(0, 2000) })
+    } catch {
+      // never let debug logging itself break the real flow
+    }
+  }
+  await debugLog('post_received')
+
   const signature = request.headers.get('x-hub-signature-256')
   if (!verifyMetaWebhookSignature(rawBody, signature, 'META_MESSENGER_APP_SECRET')) {
+    await debugLog('signature_failed', signature ?? 'no signature header')
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
+  await debugLog('signature_ok')
 
   const body = JSON.parse(rawBody) as MessengerWebhookBody
   if (body.object !== 'page') {
+    await debugLog('ignored_not_page', body.object)
     return NextResponse.json({ status: 'ignored' })
   }
 
   for (const entry of body.entry) {
     const pageId = entry.id
-    if (!entry.messaging) continue
+    if (!entry.messaging) {
+      await debugLog('no_messaging_array', pageId)
+      continue
+    }
 
     const { data: config } = await supabaseAdmin()
       .from('messenger_config')
@@ -87,6 +109,7 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     if (!config) {
+      await debugLog('no_config_for_page', pageId)
       console.error('[messenger webhook] no config found for page_id:', pageId)
       continue
     }
@@ -95,7 +118,10 @@ export async function POST(request: Request) {
       // Only handle actual messages with text for now — attachments
       // sent BY the customer, postbacks, and read receipts are future
       // scope, not this pass.
-      if (!event.message?.text) continue
+      if (!event.message?.text) {
+        await debugLog('no_message_text', JSON.stringify(event).slice(0, 500))
+        continue
+      }
 
       await processMessengerMessage(event, config.account_id, config.user_id)
     }
