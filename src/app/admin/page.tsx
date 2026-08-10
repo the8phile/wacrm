@@ -15,10 +15,11 @@ interface AdminAccountRow {
   whatsapp_connected: boolean;
   messenger_connected: boolean;
   last_activity_at: string | null;
+  tokens_30d: number;
 }
 
 type ChannelFilter = 'all' | 'whatsapp' | 'messenger' | 'none';
-type SortColumn = 'name' | 'contact_count' | 'message_count' | 'created_at';
+type SortColumn = 'name' | 'contact_count' | 'message_count' | 'created_at' | 'tokens_30d';
 type SortDirection = 'asc' | 'desc';
 
 /**
@@ -77,6 +78,7 @@ export default function AdminDashboardPage() {
       else if (sortColumn === 'contact_count') cmp = a.contact_count - b.contact_count;
       else if (sortColumn === 'message_count') cmp = a.message_count - b.message_count;
       else if (sortColumn === 'created_at') cmp = a.created_at.localeCompare(b.created_at);
+      else if (sortColumn === 'tokens_30d') cmp = a.tokens_30d - b.tokens_30d;
       return sortDirection === 'asc' ? cmp : -cmp;
     });
 
@@ -115,6 +117,7 @@ export default function AdminDashboardPage() {
   const messengerConnectedCount = accounts?.filter((a) => a.messenger_connected).length ?? 0;
   const totalMessages = accounts?.reduce((sum, a) => sum + a.message_count, 0) ?? 0;
   const totalContacts = accounts?.reduce((sum, a) => sum + a.contact_count, 0) ?? 0;
+  const totalTokens30d = accounts?.reduce((sum, a) => sum + a.tokens_30d, 0) ?? 0;
 
   return (
     <div className="min-h-screen bg-background px-6 py-8">
@@ -134,12 +137,13 @@ export default function AdminDashboardPage() {
           </Link>
         </div>
 
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard label="Total accounts" value={totalAccounts} />
           <StatCard label="WhatsApp connected" value={whatsappConnectedCount} />
           <StatCard label="Messenger connected" value={messengerConnectedCount} />
           <StatCard label="Total contacts" value={totalContacts} />
           <StatCard label="Total messages" value={totalMessages} />
+          <StatCard label="AI tokens (30d)" value={totalTokens30d} />
         </div>
 
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -181,6 +185,7 @@ export default function AdminDashboardPage() {
                 <th className="px-4 py-3 font-medium">Channels</th>
                 <SortableHeader label="Contacts" column="contact_count" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
                 <SortableHeader label="Messages" column="message_count" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader label="AI tokens (30d)" column="tokens_30d" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
                 <SortableHeader label="Created" column="created_at" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
               </tr>
             </thead>
@@ -210,6 +215,7 @@ export default function AdminDashboardPage() {
                   </td>
                   <td className="px-4 py-3 text-foreground">{account.contact_count}</td>
                   <td className="px-4 py-3 text-foreground">{account.message_count}</td>
+                  <td className="px-4 py-3 text-foreground">{account.tokens_30d.toLocaleString()}</td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {new Date(account.created_at).toLocaleDateString()}
                   </td>
@@ -217,7 +223,7 @@ export default function AdminDashboardPage() {
               ))}
               {visibleAccounts.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                     {accounts?.length === 0 ? 'No accounts yet.' : 'No accounts match your search/filter.'}
                   </td>
                 </tr>

@@ -45,6 +45,7 @@ export async function GET(
     { data: messengerConfig },
     { data: aiConfig },
     { data: conversations },
+    { data: usageRows },
   ] = await Promise.all([
     db.from('profiles').select('email, full_name').eq('user_id', account.owner_user_id).maybeSingle(),
     db.from('profiles').select('user_id, email, full_name, account_role').eq('account_id', accountId),
@@ -61,7 +62,14 @@ export async function GET(
       .eq('account_id', accountId)
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(20),
+    db
+      .from('ai_usage_log')
+      .select('total_tokens')
+      .eq('account_id', accountId)
+      .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
   ])
+
+  const tokens30d = (usageRows ?? []).reduce((sum, r) => sum + (r.total_tokens ?? 0), 0)
 
   return NextResponse.json({
     account: {
@@ -100,6 +108,7 @@ export async function GET(
           auto_reply_max_per_conversation: aiConfig.auto_reply_max_per_conversation,
         }
       : null,
+    tokens_30d: tokens30d,
     recent_conversations: (conversations ?? []).map((c) => {
       const contact = Array.isArray(c.contacts) ? c.contacts[0] : c.contacts
       return {

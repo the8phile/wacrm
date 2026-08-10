@@ -24,6 +24,7 @@ interface AccountDetail {
     auto_reply_enabled: boolean;
     auto_reply_max_per_conversation: number;
   } | null;
+  tokens_30d: number;
   recent_conversations: {
     id: string;
     channel: string;
@@ -81,7 +82,7 @@ export default function AdminAccountDetailPage() {
     );
   }
 
-  const { account, members, whatsapp, messenger, ai_config, recent_conversations } = detail;
+  const { account, members, whatsapp, messenger, ai_config, recent_conversations, tokens_30d } = detail;
 
   return (
     <div className="min-h-screen bg-background px-6 py-8">
@@ -129,6 +130,9 @@ export default function AdminAccountDetailPage() {
                   ) : (
                     <span className="text-muted-foreground">Not active</span>
                   )}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {tokens_30d.toLocaleString()} tokens (30d)
                 </p>
               </>
             ) : (

@@ -25,6 +25,8 @@ export async function GET() {
 
   const db = supabaseAdmin()
 
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
   const { data: accounts, error } = await db
     .from('accounts')
     .select('id, name, owner_user_id, default_currency, created_at')
@@ -47,6 +49,7 @@ export async function GET() {
         { data: messengerConfig },
         { data: ownerProfile },
         { data: lastConversation },
+        { data: usageRows },
       ] = await Promise.all([
         db.from('contacts').select('id', { count: 'exact', head: true }).eq('account_id', account.id),
         db
@@ -63,7 +66,14 @@ export async function GET() {
           .order('last_message_at', { ascending: false, nullsFirst: false })
           .limit(1)
           .maybeSingle(),
+        db
+          .from('ai_usage_log')
+          .select('total_tokens')
+          .eq('account_id', account.id)
+          .gte('created_at', thirtyDaysAgo),
       ])
+
+      const tokens30d = (usageRows ?? []).reduce((sum, r) => sum + (r.total_tokens ?? 0), 0)
 
       return {
         id: account.id,
@@ -76,6 +86,7 @@ export async function GET() {
         whatsapp_connected: whatsappConfig?.status === 'connected',
         messenger_connected: messengerConfig?.status === 'connected',
         last_activity_at: lastConversation?.last_message_at ?? null,
+        tokens_30d: tokens30d,
       }
     }),
   )
