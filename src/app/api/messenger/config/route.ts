@@ -118,3 +118,46 @@ export async function GET() {
     connected_at: data.connected_at,
   })
 }
+
+/** POST /api/messenger/config/test — actually calls Meta's Graph API
+ *  with the saved token to check whether the Page has genuinely
+ *  installed this app for message events. This is the real signal —
+ *  the Messenger dashboard's checkbox UI can look "subscribed" while
+ *  the underlying installation never went through. Returns Meta's
+ *  raw response so the real failure reason (bad permission, expired
+ *  token, not installed) is visible instead of guessed at. */
+export async function PUT() {
+  let ctx
+  try {
+    ctx = await requireRole('agent')
+  } catch (err) {
+    return toErrorResponse(err)
+  }
+
+  const { data } = await ctx.supabase
+    .from('messenger_config')
+    .select('page_id, page_access_token')
+    .eq('account_id', ctx.accountId)
+    .maybeSingle()
+
+  if (!data || data.page_id === 'pending-setup') {
+    return NextResponse.json({ error: 'No Messenger config saved yet' }, { status: 400 })
+  }
+
+  let token: string
+  try {
+    token = decrypt(data.page_access_token)
+  } catch {
+    return NextResponse.json({ error: 'Saved token could not be decrypted — re-save it' }, { status: 400 })
+  }
+
+  const url = `https://graph.facebook.com/v21.0/${data.page_id}/subscribed_apps?access_token=${encodeURIComponent(token)}`
+  const metaRes = await fetch(url)
+  const metaBody = await metaRes.json().catch(() => null)
+
+  return NextResponse.json({
+    page_id: data.page_id,
+    http_status: metaRes.status,
+    meta_response: metaBody,
+  })
+}
