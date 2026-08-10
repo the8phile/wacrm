@@ -27,6 +27,13 @@ interface MessengerEntry {
     message?: {
       mid: string
       text?: string
+      // True when this event is Meta echoing back a message OUR OWN
+      // page just sent (via the Send API), not an inbound customer
+      // message. Must be filtered out before any customer/conversation
+      // logic runs, or the bot's own replies get logged and re-processed
+      // as if a customer sent them — including a bogus "contact" row
+      // keyed on the page's own ID.
+      is_echo?: boolean
       attachments?: Array<{ type: string; payload: { url?: string } }>
     }
   }>
@@ -124,6 +131,13 @@ export async function POST(request: Request) {
     }
 
     for (const event of entry.messaging) {
+      // Echoes of the page's own outbound sends — never treat these as
+      // an inbound customer message (see the is_echo comment above).
+      if (event.message?.is_echo) {
+        await debugLog('ignored_echo', JSON.stringify(event).slice(0, 500))
+        continue
+      }
+
       // Only handle actual messages with text for now — attachments
       // sent BY the customer, postbacks, and read receipts are future
       // scope, not this pass.
