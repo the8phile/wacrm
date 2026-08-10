@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
+import { decrypt } from '@/lib/whatsapp/encryption'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 
 // Lazy-initialized to avoid build-time crash when env vars are missing
@@ -112,7 +113,7 @@ export async function POST(request: Request) {
 
     const { data: config } = await supabaseAdmin()
       .from('messenger_config')
-      .select('account_id, user_id')
+      .select('account_id, user_id, page_access_token')
       .eq('page_id', pageId)
       .maybeSingle()
 
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
         continue
       }
 
-      await processMessengerMessage(event, config.account_id, config.user_id)
+      await processMessengerMessage(event, config.account_id, config.user_id, config.page_access_token)
     }
   }
 
@@ -142,6 +143,7 @@ async function processMessengerMessage(
   event: NonNullable<MessengerEntry['messaging']>[number],
   accountId: string,
   configOwnerUserId: string,
+  encryptedPageAccessToken: string,
 ) {
   const db = supabaseAdmin()
   const psid = event.sender.id
@@ -149,10 +151,7 @@ async function processMessengerMessage(
 
   // Find or create the contact for this PSID. Messenger gives no name
   // on the message event itself (unlike WhatsApp's contacts.profile.name) —
-  // fetching the person's name requires a separate Graph API call, which
-  // is a follow-up, not blocking here. New contacts start unnamed; the
-  // customer-profile context (getCustomerProfileContext) already handles
-  // an unnamed contact gracefully.
+  // a new contact does a one-time Graph API lookup for their name below.
   const { data: existingContact } = await db
     .from('contacts')
     .select('id')
@@ -163,6 +162,25 @@ async function processMessengerMessage(
 
   let contactId = existingContact?.id as string | undefined
   if (!contactId) {
+    // Best-effort name lookup — Meta's User Profile API for Messenger
+    // is permission-gated and may return nothing without extra App
+    // Review approval. A failure here must not block creating the
+    // contact; getCustomerProfileContext already handles an unnamed
+    // contact gracefully.
+    let name: string | null = null
+    try {
+      const token = decrypt(encryptedPageAccessToken)
+      const profileRes = await fetch(
+        `https://graph.facebook.com/v21.0/${psid}?fields=first_name,last_name&access_token=${encodeURIComponent(token)}`,
+      )
+      const profile = await profileRes.json().catch(() => null)
+      if (profile?.first_name || profile?.last_name) {
+        name = [profile.first_name, profile.last_name].filter(Boolean).join(' ')
+      }
+    } catch (err) {
+      console.error('[messenger webhook] profile name lookup failed:', err)
+    }
+
     const { data: newContact, error: contactErr } = await db
       .from('contacts')
       .insert({
@@ -170,6 +188,7 @@ async function processMessengerMessage(
         user_id: configOwnerUserId,
         channel: 'messenger',
         external_id: psid,
+        ...(name ? { name } : {}),
       })
       .select('id')
       .single()
