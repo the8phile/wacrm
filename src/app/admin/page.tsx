@@ -16,6 +16,7 @@ interface AdminAccountRow {
   messenger_connected: boolean;
   last_activity_at: string | null;
   tokens_30d: number;
+  suspended: boolean;
 }
 
 type ChannelFilter = 'all' | 'whatsapp' | 'messenger' | 'none';
@@ -196,6 +197,11 @@ export default function AdminDashboardPage() {
                     <Link href={`/admin/accounts/${account.id}`} className="hover:text-primary hover:underline">
                       {account.name}
                     </Link>
+                    {account.suspended && (
+                      <span className="ml-2 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
+                        Suspended
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {account.owner_name || account.owner_email || '—'}

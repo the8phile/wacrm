@@ -29,7 +29,7 @@ export async function GET() {
 
   const { data: accounts, error } = await db
     .from('accounts')
-    .select('id, name, owner_user_id, default_currency, created_at')
+    .select('id, name, owner_user_id, default_currency, created_at, suspended')
     .order('created_at', { ascending: false })
 
   if (error || !accounts) {
@@ -87,6 +87,7 @@ export async function GET() {
         messenger_connected: messengerConfig?.status === 'connected',
         last_activity_at: lastConversation?.last_message_at ?? null,
         tokens_30d: tokens30d,
+        suspended: account.suspended,
       }
     }),
   )

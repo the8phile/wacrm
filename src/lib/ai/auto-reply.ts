@@ -55,6 +55,16 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
 
+    // A platform-admin suspension (see /admin/accounts/[id]) must stop
+    // the AI from replying too, not just block dashboard access — a
+    // suspended account's bot shouldn't keep talking to customers.
+    const { data: acctStatus } = await db
+      .from('accounts')
+      .select('suspended')
+      .eq('id', accountId)
+      .maybeSingle()
+    if (acctStatus?.suspended) return
+
     // Which platform this contact lives on — decides which Send API
     // (and which stored credentials) `sendText`/`sendPhoto` below use.
     // Defaults to 'whatsapp' if somehow unset, matching every row that

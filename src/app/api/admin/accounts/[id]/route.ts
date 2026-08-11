@@ -30,7 +30,7 @@ export async function GET(
 
   const { data: account, error: accountErr } = await db
     .from('accounts')
-    .select('id, name, owner_user_id, default_currency, created_at')
+    .select('id, name, owner_user_id, default_currency, created_at, suspended, suspended_at, suspended_reason')
     .eq('id', accountId)
     .maybeSingle()
 
@@ -79,6 +79,9 @@ export async function GET(
       default_currency: account.default_currency,
       owner_email: ownerProfile?.email ?? null,
       owner_name: ownerProfile?.full_name ?? null,
+      suspended: account.suspended,
+      suspended_at: account.suspended_at,
+      suspended_reason: account.suspended_reason,
     },
     members: (memberProfiles ?? []).map((m) => ({
       email: m.email,

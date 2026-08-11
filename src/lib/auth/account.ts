@@ -149,7 +149,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   // RLS, so it stays robust against cache staleness and older schemas.
   const { data: account, error: accountErr } = await supabase
     .from("accounts")
-    .select("id, name")
+    .select("id, name, suspended")
     .eq("id", data.account_id)
     .maybeSingle();
 
@@ -161,6 +161,17 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     // account_id points at no readable account row — orphaned profile
     // or an RLS gap. Same "can't scope this user" outcome as above.
     throw new ForbiddenError("Profile is not linked to an account");
+  }
+  if (account.suspended) {
+    // Platform-admin action (see /admin/accounts/[id]) — blocks every
+    // route that calls getCurrentAccount/requireRole, i.e. the whole
+    // dashboard and API surface for every member of this account.
+    // Intentionally does NOT touch the inbound WhatsApp/Messenger
+    // webhooks — those don't call this function — so a suspended
+    // account still receives messages but its team can't act on them
+    // and the AI won't reply either, since dispatchInboundToAiReply's
+    // config load also fails closed for a suspended account.
+    throw new ForbiddenError("This account has been suspended. Contact support for details.");
   }
 
   return {
