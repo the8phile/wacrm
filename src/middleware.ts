@@ -8,6 +8,7 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      db: { schema: 'wacrm' },
       cookies: {
         getAll() {
           return request.cookies.getAll()
@@ -75,6 +76,37 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return withRefreshedCookies(NextResponse.redirect(url))
+  }
+
+  // Suspended accounts (platform admin action, see /admin/accounts/[id])
+  // never reach the dashboard shell at all — checked here, before any
+  // page renders, rather than per-page/per-API-call. Without this, a
+  // suspended team just sees an empty, all-zero dashboard (every data
+  // call individually 403s and the UI quietly falls back to nothing)
+  // instead of a clear explanation of what happened and why.
+  if (user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('account_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (profile?.account_id) {
+      const { data: account } = await supabase
+        .from('accounts')
+        .select('suspended, suspended_reason')
+        .eq('id', profile.account_id)
+        .maybeSingle()
+
+      if (account?.suspended) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/account-suspended'
+        url.search = account.suspended_reason
+          ? `?reason=${encodeURIComponent(account.suspended_reason)}`
+          : ''
+        return withRefreshedCookies(NextResponse.redirect(url))
+      }
+    }
   }
 
   // API routes that need auth (not webhooks)

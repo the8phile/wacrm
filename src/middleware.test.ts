@@ -14,6 +14,12 @@ let refreshedCookies: Array<{
   value: string;
   options: Record<string, unknown>;
 }> = [];
+// Account-suspension knob — mirrors the shape middleware queries
+// (profiles.account_id → accounts.suspended/suspended_reason).
+// Defaults to a normal, non-suspended account so existing pass-through
+// tests don't need to know about this at all.
+let mockAccountSuspended = false;
+let mockSuspendedReason: string | null = null;
 
 vi.mock("@supabase/ssr", () => ({
   createServerClient: (
@@ -32,6 +38,26 @@ vi.mock("@supabase/ssr", () => ({
         return { data: { user: mockUser } };
       },
     },
+    from: (table: string) => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => {
+            if (table === "profiles") {
+              return { data: { account_id: "account-1" } };
+            }
+            if (table === "accounts") {
+              return {
+                data: {
+                  suspended: mockAccountSuspended,
+                  suspended_reason: mockSuspendedReason,
+                },
+              };
+            }
+            return { data: null };
+          },
+        }),
+      }),
+    }),
   }),
 }));
 
@@ -43,6 +69,8 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
   mockUser = null;
   refreshedCookies = [];
+  mockAccountSuspended = false;
+  mockSuspendedReason = null;
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -108,6 +136,23 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
 
     // No redirect — the normal NextResponse.next() already carries cookies.
     expect(res.headers.get("location")).toBeNull();
+    expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+
+  it("redirects a signed-in user on a suspended account to /account-suspended", async () => {
+    mockUser = { id: "user-1" };
+    refreshedCookies = [ROTATED];
+    mockAccountSuspended = true;
+    mockSuspendedReason = "Non-payment";
+
+    const res = await middleware(
+      new NextRequest("https://app.test/dashboard"),
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/account-suspended");
+    expect(res.headers.get("location")).toContain("reason=Non-payment");
+    // The rotated cookie must still ride along on this redirect too.
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
 });
