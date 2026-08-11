@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { Loader2, ShieldAlert, ArrowLeft, PlugZap, MessageCircle, Bot } from 'lucide-react';
+import { toast } from 'sonner';
+import { Loader2, ShieldAlert, ArrowLeft, PlugZap, MessageCircle, Bot, Ban, CheckCircle2 } from 'lucide-react';
 
 interface AccountDetail {
   account: {
@@ -13,6 +14,9 @@ interface AccountDetail {
     default_currency: string | null;
     owner_email: string | null;
     owner_name: string | null;
+    suspended: boolean;
+    suspended_at: string | null;
+    suspended_reason: string | null;
   };
   members: { email: string | null; full_name: string | null; role: string }[];
   whatsapp: { connected: boolean; phone_number_id: string | null; connected_at: string | null } | null;
@@ -47,8 +51,9 @@ export default function AdminAccountDetailPage() {
   const [detail, setDetail] = useState<AccountDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [togglingSuspend, setTogglingSuspend] = useState(false);
 
-  useEffect(() => {
+  const loadDetail = () => {
     fetch(`/api/admin/accounts/${params.id}`)
       .then(async (res) => {
         if (!res.ok) {
@@ -60,7 +65,52 @@ export default function AdminAccountDetailPage() {
       .then((data) => setDetail(data))
       .catch((err) => setError(err.message ?? 'Failed to load account'))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadDetail();
   }, [params.id]);
+
+  const handleSuspend = async () => {
+    const reason = prompt('Reason for suspension (optional, shown for your own reference):');
+    if (reason === null) return; // cancelled
+    setTogglingSuspend(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${params.id}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? 'Failed to suspend account');
+      }
+      toast.success('Account suspended.');
+      loadDetail();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to suspend account');
+    } finally {
+      setTogglingSuspend(false);
+    }
+  };
+
+  const handleUnsuspend = async () => {
+    if (!confirm('Restore access for this account?')) return;
+    setTogglingSuspend(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${params.id}/suspend`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? 'Failed to unsuspend account');
+      }
+      toast.success('Account restored.');
+      loadDetail();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to unsuspend account');
+    } finally {
+      setTogglingSuspend(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -94,13 +144,45 @@ export default function AdminAccountDetailPage() {
           <ArrowLeft className="size-4" /> Back to accounts
         </Link>
 
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-foreground">{account.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            Owner: {account.owner_name || account.owner_email || '—'} · Created{' '}
-            {new Date(account.created_at).toLocaleDateString()}
-          </p>
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground">{account.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              Owner: {account.owner_name || account.owner_email || '—'} · Created{' '}
+              {new Date(account.created_at).toLocaleDateString()}
+            </p>
+          </div>
+          {account.suspended ? (
+            <button
+              onClick={handleUnsuspend}
+              disabled={togglingSuspend}
+              className="flex items-center gap-1.5 rounded-lg border border-green-500/30 px-3 py-1.5 text-sm text-green-500 hover:bg-green-500/10 disabled:opacity-50"
+            >
+              {togglingSuspend ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+              Restore access
+            </button>
+          ) : (
+            <button
+              onClick={handleSuspend}
+              disabled={togglingSuspend}
+              className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            >
+              {togglingSuspend ? <Loader2 className="size-4 animate-spin" /> : <Ban className="size-4" />}
+              Suspend account
+            </button>
+          )}
         </div>
+
+        {account.suspended && (
+          <div className="mb-6 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <p className="font-medium">This account is suspended.</p>
+            <p className="mt-0.5 text-destructive/80">
+              Its team is locked out of the dashboard and the AI has stopped auto-replying.
+              {account.suspended_at && ` Suspended ${new Date(account.suspended_at).toLocaleString()}.`}
+              {account.suspended_reason && ` Reason: ${account.suspended_reason}`}
+            </p>
+          </div>
+        )}
 
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
           <ChannelCard
