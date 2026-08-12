@@ -1506,7 +1506,8 @@
       "fields": "Fields & tags",
       "deals": "Deals & currency",
       "members": "Team members",
-      "api": "API keys"
+      "api": "API keys",
+      "billing": "Billing"
     },
     "groups": {
       "account": "Account",
