@@ -1,19 +1,26 @@
 /**
- * Thin wrapper around PawaPay's v1 Merchant API — mirrors the shape
- * already proven working in a separate project (momo-wallet), so
- * this follows the same field names/endpoints rather than guessing
- * from documentation alone.
+ * Thin wrapper around PawaPay's v2 Merchant API.
  *
- * PAWAPAY_API_URL should be the sandbox base (https://api.sandbox.pawapay.io)
- * while testing, switched to https://api.pawapay.io only once real
- * payments are ready to go live. PAWAPAY_API_TOKEN is the bearer
- * token from the PawaPay dashboard for that same environment.
+ * IMPORTANT: v1 and v2 are genuinely different APIs with separate
+ * sandbox test data — v1 uses bare paths like /deposits with a
+ * `correspondent` field and MSISDN payer type; v2 uses /v2/deposits
+ * with a `payer.accountDetails.provider` shape (what this file uses).
+ * Calling v1 paths against a dashboard/token set up for v2 can
+ * silently return empty/different data rather than an obvious error
+ * — that's what happened here (Cameroon showed configured in the
+ * dashboard but v1's /active-conf returned nothing for it).
+ *
+ * PAWAPAY_API_URL should be the bare sandbox host
+ * (https://api.sandbox.pawapay.io) — this file appends /v2/... itself
+ * — switched to https://api.pawapay.io only once real payments are
+ * ready to go live. PAWAPAY_API_TOKEN is the bearer token from the
+ * PawaPay dashboard for that same environment.
  */
 
 function baseUrl(): string {
   const url = process.env.PAWAPAY_API_URL
   if (!url) throw new Error('PAWAPAY_API_URL is not configured')
-  return url
+  return `${url}/v2`
 }
 
 function authHeaders(): Record<string, string> {
@@ -85,7 +92,8 @@ export interface PawaPayDepositResponse {
   failureReason?: { failureCode: string; failureMessage: string }
 }
 
-export async function initiateDeposit(args: InitiateDepositArgs): Promise<PawaPayDepositResponse> { const res = await fetch(`${baseUrl()}/deposits`, {
+export async function initiateDeposit(args: InitiateDepositArgs): Promise<PawaPayDepositResponse> {
+  const res = await fetch(`${baseUrl()}/deposits`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({
@@ -99,6 +107,9 @@ export async function initiateDeposit(args: InitiateDepositArgs): Promise<PawaPa
           provider: args.provider,
         },
       },
+      // Required by v2 (4–22 chars) — shown to the customer on the
+      // PIN prompt / SMS receipt by some providers.
+      customerMessage: 'wacrm plan upgrade',
     }),
   })
   return res.json()
