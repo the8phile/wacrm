@@ -2,7 +2,20 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, ShieldAlert, MessageCircle, PlugZap, Search, ArrowUp, ArrowDown, TriangleAlert } from 'lucide-react';
+import {
+  Loader2,
+  ShieldAlert,
+  MessageCircle,
+  PlugZap,
+  Search,
+  ArrowUp,
+  ArrowDown,
+  TriangleAlert,
+  Send,
+  Coins,
+  Building2,
+} from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from 'recharts';
 
 interface AdminAccountRow {
   id: string;
@@ -23,6 +36,8 @@ interface AdminAccountRow {
 type ChannelFilter = 'all' | 'whatsapp' | 'messenger' | 'none';
 type SortColumn = 'name' | 'contact_count' | 'message_count' | 'created_at' | 'tokens_30d';
 type SortDirection = 'asc' | 'desc';
+
+const DONUT_COLORS = ['#a78bfa', '#60a5fa', '#34d399', '#4b5563'];
 
 /**
  * Platform admin dashboard — every account on the whole platform,
@@ -96,6 +111,41 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Chart data — derived entirely from what's already fetched, no
+  // extra network calls.
+  const channelBreakdown = useMemo(() => {
+    if (!accounts) return [];
+    const both = accounts.filter((a) => a.whatsapp_connected && a.messenger_connected).length;
+    const whatsappOnly = accounts.filter((a) => a.whatsapp_connected && !a.messenger_connected).length;
+    const messengerOnly = accounts.filter((a) => !a.whatsapp_connected && a.messenger_connected).length;
+    const none = accounts.filter((a) => !a.whatsapp_connected && !a.messenger_connected).length;
+    return [
+      { name: 'Both channels', value: both },
+      { name: 'WhatsApp only', value: whatsappOnly },
+      { name: 'Messenger only', value: messengerOnly },
+      { name: 'No channel', value: none },
+    ].filter((d) => d.value > 0);
+  }, [accounts]);
+
+  const signupsByDay = useMemo(() => {
+    if (!accounts) return [];
+    const days: { label: string; count: number }[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+      const count = accounts.filter((a) => {
+        const created = new Date(a.created_at);
+        return created >= dayStart && created < dayEnd;
+      }).length;
+      days.push({ label, count });
+    }
+    return days;
+  }, [accounts]);
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -121,6 +171,7 @@ export default function AdminDashboardPage() {
   const totalContacts = accounts?.reduce((sum, a) => sum + a.contact_count, 0) ?? 0;
   const totalTokens30d = accounts?.reduce((sum, a) => sum + a.tokens_30d, 0) ?? 0;
   const brokenConfigCount = accounts?.filter((a) => a.has_broken_config).length ?? 0;
+  const connectedCount = accounts?.filter((a) => a.whatsapp_connected || a.messenger_connected).length ?? 0;
 
   return (
     <div className="min-h-screen bg-background px-6 py-8">
@@ -129,7 +180,7 @@ export default function AdminDashboardPage() {
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Platform Admin</h1>
             <p className="text-sm text-muted-foreground">
-              {accounts?.length ?? 0} account{accounts?.length === 1 ? '' : 's'} total
+              {totalAccounts} account{totalAccounts === 1 ? '' : 's'} total
             </p>
           </div>
           <Link
@@ -140,13 +191,122 @@ export default function AdminDashboardPage() {
           </Link>
         </div>
 
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-7">
-          <StatCard label="Total accounts" value={totalAccounts} />
+        {/* Colorful stat cards, matching the icon-badge dashboard style */}
+        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <ColorStatCard
+            icon={<Building2 className="size-5" />}
+            iconBg="bg-violet-500/15"
+            iconColor="text-violet-400"
+            label="Total accounts"
+            value={totalAccounts}
+          />
+          <ColorStatCard
+            icon={<PlugZap className="size-5" />}
+            iconBg="bg-emerald-500/15"
+            iconColor="text-emerald-400"
+            label="Channels connected"
+            value={connectedCount}
+          />
+          <ColorStatCard
+            icon={<Send className="size-5" />}
+            iconBg="bg-blue-500/15"
+            iconColor="text-blue-400"
+            label="Total messages"
+            value={totalMessages}
+          />
+          <ColorStatCard
+            icon={<Coins className="size-5" />}
+            iconBg="bg-amber-500/15"
+            iconColor="text-amber-400"
+            label="AI tokens (30d)"
+            value={totalTokens30d}
+          />
+        </div>
+
+        {/* Charts row */}
+        <div className="mb-6 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
+            <div className="mb-4">
+              <h2 className="text-sm font-medium text-foreground">Signups over time</h2>
+              <p className="text-xs text-muted-foreground">New accounts per day, last 14 days</p>
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={signupsByDay}>
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: 'currentColor' }}
+                  className="text-muted-foreground"
+                  axisLine={false}
+                  tickLine={false}
+                  interval={1}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}
+                />
+                <Bar dataKey="count" fill="#a78bfa" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-5">
+            <div className="mb-2">
+              <h2 className="text-sm font-medium text-foreground">Channel mix</h2>
+              <p className="text-xs text-muted-foreground">How accounts connect</p>
+            </div>
+            {channelBreakdown.length === 0 ? (
+              <div className="flex h-[180px] items-center justify-center text-xs text-muted-foreground">
+                No data yet
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie
+                    data={channelBreakdown}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={45}
+                    outerRadius={70}
+                    paddingAngle={2}
+                  >
+                    {channelBreakdown.map((_, i) => (
+                      <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              {channelBreakdown.map((d, i) => (
+                <div key={d.name} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span
+                    className="size-2 rounded-full"
+                    style={{ backgroundColor: DONUT_COLORS[i % DONUT_COLORS.length] }}
+                  />
+                  {d.name}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Secondary stat row */}
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <StatCard label="WhatsApp connected" value={whatsappConnectedCount} />
           <StatCard label="Messenger connected" value={messengerConnectedCount} />
           <StatCard label="Total contacts" value={totalContacts} />
-          <StatCard label="Total messages" value={totalMessages} />
-          <StatCard label="AI tokens (30d)" value={totalTokens30d} />
           <StatCard label="Broken setups" value={brokenConfigCount} />
         </div>
 
@@ -179,7 +339,7 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-border">
+        <div className="overflow-x-auto rounded-2xl border border-border bg-card">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50 text-left text-muted-foreground">
@@ -244,6 +404,31 @@ export default function AdminDashboardPage() {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Colorful icon-badge stat card, matching the reference dashboard style. */
+function ColorStatCard({
+  icon,
+  iconBg,
+  iconColor,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  iconBg: string;
+  iconColor: string;
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className={`mb-3 flex size-10 items-center justify-center rounded-xl ${iconBg} ${iconColor}`}>
+        {icon}
+      </div>
+      <p className="text-2xl font-semibold text-foreground">{value.toLocaleString()}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
     </div>
   );
 }
