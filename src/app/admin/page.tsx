@@ -16,7 +16,6 @@ import {
   Building2,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from 'recharts';
-
 interface AdminAccountRow {
   id: string;
   name: string;
@@ -31,6 +30,10 @@ interface AdminAccountRow {
   tokens_30d: number;
   suspended: boolean;
   has_broken_config: boolean;
+  plan: string;
+  subscription_status: string;
+  trial_ends_at: string | null;
+  over_contact_limit: boolean;
 }
 
 type ChannelFilter = 'all' | 'whatsapp' | 'messenger' | 'none';
@@ -346,6 +349,7 @@ export default function AdminDashboardPage() {
                 <SortableHeader label="Account" column="name" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
                 <th className="px-4 py-3 font-medium">Owner</th>
                 <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Plan</th>
                 <th className="px-4 py-3 font-medium">Channels</th>
                 <SortableHeader label="Contacts" column="contact_count" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
                 <SortableHeader label="Messages" column="message_count" current={sortColumn} direction={sortDirection} onSort={toggleSort} />
@@ -376,6 +380,14 @@ export default function AdminDashboardPage() {
                     <StatusBadge lastActivityAt={account.last_activity_at} suspended={account.suspended} />
                   </td>
                   <td className="px-4 py-3">
+                    <PlanBadge
+                      plan={account.plan}
+                      subscriptionStatus={account.subscription_status}
+                      trialEndsAt={account.trial_ends_at}
+                      overLimit={account.over_contact_limit}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <PlugZap
                         className={`size-4 ${account.whatsapp_connected ? 'text-green-500' : 'text-muted-foreground/30'}`}
@@ -395,7 +407,7 @@ export default function AdminDashboardPage() {
               ))}
               {visibleAccounts.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                     {accounts?.length === 0 ? 'No accounts yet.' : 'No accounts match your search/filter.'}
                   </td>
                 </tr>
@@ -492,6 +504,55 @@ function StatusBadge({ lastActivityAt, suspended }: { lastActivityAt: string | n
       <span className="size-1.5 rounded-full bg-muted-foreground/40" /> Inactive
     </span>
   );
+}
+
+/**
+ * Plan + subscription-status badge — shows the plan name, a trial
+ * countdown while trialing, and a warning if the account is over its
+ * plan's contact limit (a soft limit — see plan-limits.ts — never
+ * blocks the account, just surfaced here for you to follow up on).
+ */
+function PlanBadge({
+  plan,
+  subscriptionStatus,
+  trialEndsAt,
+  overLimit,
+}: {
+  plan: string;
+  subscriptionStatus: string;
+  trialEndsAt: string | null;
+  overLimit: boolean;
+}) {
+  const planLabel = plan.charAt(0).toUpperCase() + plan.slice(1);
+
+  let statusLine: React.ReactNode = null;
+  if (subscriptionStatus === 'trialing' && trialEndsAt) {
+    const daysLeft = Math.max(0, Math.ceil(daysUntil(trialEndsAt)));
+    statusLine = (
+      <span className="text-[10px] text-blue-400">
+        Trial · {daysLeft}d left
+      </span>
+    );
+  } else if (subscriptionStatus === 'past_due') {
+    statusLine = <span className="text-[10px] text-destructive">Payment past due</span>;
+  } else if (subscriptionStatus === 'canceled') {
+    statusLine = <span className="text-[10px] text-muted-foreground">Canceled</span>;
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-medium text-foreground">{planLabel}</p>
+      {statusLine}
+      {overLimit && (
+        <p className="text-[10px] text-yellow-500">Over contact limit</p>
+      )}
+    </div>
+  );
+}
+
+/** Pure helper — days remaining until a future ISO date. */
+function daysUntil(dateStr: string): number {
+  return (new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
 }
 
 function SortableHeader({

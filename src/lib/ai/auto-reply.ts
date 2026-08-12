@@ -1,4 +1,5 @@
 ﻿import { supabaseAdmin } from './admin-client'
+import { getPlanLimits } from '@/lib/billing/plan-limits'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
@@ -60,10 +61,29 @@ export async function dispatchInboundToAiReply(
     // suspended account's bot shouldn't keep talking to customers.
     const { data: acctStatus } = await db
       .from('accounts')
-      .select('suspended')
+      .select('suspended, plan')
       .eq('id', accountId)
       .maybeSingle()
     if (acctStatus?.suspended) return
+
+    // Plan-based monthly AI reply cap (see src/lib/billing/plan-limits.ts).
+    // Free/Starter plans have a real ceiling; Pro (and trialing accounts,
+    // which are provisioned at plan='pro') are unlimited here. Checked
+    // before the more expensive per-conversation logic below so a
+    // maxed-out account's inbound doesn't waste knowledge-base lookups.
+    const planLimits = getPlanLimits(acctStatus?.plan)
+    if (planLimits.maxAiRepliesPerMonth !== null) {
+      const monthStart = new Date()
+      monthStart.setDate(1)
+      monthStart.setHours(0, 0, 0, 0)
+      const { count: repliesThisMonth } = await db
+        .from('ai_usage_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('account_id', accountId)
+        .eq('mode', 'auto_reply')
+        .gte('created_at', monthStart.toISOString())
+      if ((repliesThisMonth ?? 0) >= planLimits.maxAiRepliesPerMonth) return
+    }
 
     // Which platform this contact lives on — decides which Send API
     // (and which stored credentials) `sendText`/`sendPhoto` below use.

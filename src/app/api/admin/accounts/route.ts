@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requirePlatformAdmin, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
+import { getPlanLimits } from '@/lib/billing/plan-limits'
 
 /**
  * GET /api/admin/accounts
@@ -29,7 +30,7 @@ export async function GET() {
 
   const { data: accounts, error } = await db
     .from('accounts')
-    .select('id, name, owner_user_id, default_currency, created_at, suspended')
+    .select('id, name, owner_user_id, default_currency, created_at, suspended, plan, subscription_status, trial_ends_at')
     .order('created_at', { ascending: false })
 
   if (error || !accounts) {
@@ -86,6 +87,9 @@ export async function GET() {
       const hasBrokenConfig =
         (whatsappConnected || messengerConnected) && (messageCount ?? 0) === 0 && daysSinceCreated > 3
 
+      const contactLimit = getPlanLimits(account.plan).maxContacts
+      const overContactLimit = contactLimit !== null && (contactCount ?? 0) > contactLimit
+
       return {
         id: account.id,
         name: account.name,
@@ -100,6 +104,10 @@ export async function GET() {
         tokens_30d: tokens30d,
         suspended: account.suspended,
         has_broken_config: hasBrokenConfig,
+        plan: account.plan,
+        subscription_status: account.subscription_status,
+        trial_ends_at: account.trial_ends_at,
+        over_contact_limit: overContactLimit,
       }
     }),
   )
