@@ -32,6 +32,7 @@ export function BillingSettings() {
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<'starter' | 'pro' | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [providerError, setProviderError] = useState<string | null>(null);
   const [selectedProvider, setSelectedProvider] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -47,10 +48,24 @@ export function BillingSettings() {
 
   useEffect(() => {
     if (!selectedPlan) return;
+    setProviderError(null);
     fetch('/api/billing/providers?country=CMR')
-      .then((res) => res.json())
-      .then((data) => setProviders(data.providers ?? []))
-      .catch(() => setProviders([]));
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+        return data;
+      })
+      .then((data) => {
+        const list = data.providers ?? [];
+        setProviders(list);
+        if (list.length === 0) {
+          setProviderError('PawaPay returned no available providers for Cameroon (CMR) right now.');
+        }
+      })
+      .catch((err) => {
+        setProviders([]);
+        setProviderError(err instanceof Error ? err.message : 'Failed to load payment providers');
+      });
   }, [selectedPlan]);
 
   // Poll for payment completion once a deposit is in flight.
@@ -162,6 +177,11 @@ export function BillingSettings() {
 
               <div className="mb-3 flex flex-col gap-2">
                 <label className="text-xs text-muted-foreground">Provider</label>
+                {providerError && (
+                  <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+                    {providerError}
+                  </p>
+                )}
                 <select
                   value={selectedProvider}
                   onChange={(e) => setSelectedProvider(e.target.value)}

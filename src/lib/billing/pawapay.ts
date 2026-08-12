@@ -41,7 +41,11 @@ export async function getAvailableProviders(country: string): Promise<PawaPayPro
     { headers: authHeaders() },
   )
   if (!res.ok) {
-    throw new Error(`PawaPay active-conf request failed (${res.status})`)
+    // Include PawaPay's own response body when we can — a 401 here is
+    // almost always PAWAPAY_API_TOKEN being wrong/missing, and their
+    // body usually says so explicitly rather than us just guessing.
+    const bodyText = await res.text().catch(() => '')
+    throw new Error(`PawaPay active-conf request failed (${res.status}): ${bodyText || 'no response body'}`)
   }
   const data = await res.json()
   return data?.countries?.[0]?.providers ?? []
@@ -60,8 +64,7 @@ export interface PawaPayDepositResponse {
   failureReason?: { failureCode: string; failureMessage: string }
 }
 
-export async function initiateDeposit(args: InitiateDepositArgs): Promise<PawaPayDepositResponse> {
-  const res = await fetch(`${baseUrl()}/deposits`, {
+export async function initiateDeposit(args: InitiateDepositArgs): Promise<PawaPayDepositResponse> { const res = await fetch(`${baseUrl()}/deposits`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({
