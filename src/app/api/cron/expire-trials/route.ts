@@ -3,10 +3,12 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 
 /**
- * Downgrades any account still 'trialing' past its trial_ends_at to
- * plan='free' / subscription_status='free'. Accounts that upgraded
- * to a real Flutterwave subscription during the trial are already
- * subscription_status='active' by then and are untouched here.
+ * Downgrades to plan='free' / subscription_status='free' any account
+ * whose paid access has run out:
+ *   - still 'trialing' past trial_ends_at (never converted), or
+ *   - 'active' (a real PawaPay payment) past plan_expires_at (the
+ *     one-time 30-day charge lapsed and wasn't renewed — see
+ *     src/lib/billing/pawapay.ts activatePlanForPayment).
  *
  * Same shared-secret pattern as the other cron routes (see
  * /api/cron/abandoned-followup) — one external pinger can cover all
@@ -28,30 +30,33 @@ export async function GET(request: Request) {
   }
 
   const db = supabaseAdmin()
+  const now = new Date().toISOString()
 
-  const { data: expired, error: findErr } = await db
-    .from('accounts')
-    .select('id')
-    .eq('subscription_status', 'trialing')
-    .lt('trial_ends_at', new Date().toISOString())
+  const [{ data: expiredTrials, error: trialErr }, { data: expiredPaid, error: paidErr }] =
+    await Promise.all([
+      db.from('accounts').select('id').eq('subscription_status', 'trialing').lt('trial_ends_at', now),
+      db.from('accounts').select('id').eq('subscription_status', 'active').lt('plan_expires_at', now),
+    ])
 
-  if (findErr) {
-    console.error('[expire-trials cron] lookup failed:', findErr)
+  if (trialErr || paidErr) {
+    console.error('[expire-trials cron] lookup failed:', trialErr ?? paidErr)
     return NextResponse.json({ error: 'lookup failed' }, { status: 500 })
   }
-  if (!expired || expired.length === 0) {
+
+  const expiredIds = [...(expiredTrials ?? []), ...(expiredPaid ?? [])].map((a) => a.id)
+  if (expiredIds.length === 0) {
     return NextResponse.json({ downgraded: 0 })
   }
 
   const { error: updateErr } = await db
     .from('accounts')
     .update({ plan: 'free', subscription_status: 'free' })
-    .in('id', expired.map((a) => a.id))
+    .in('id', expiredIds)
 
   if (updateErr) {
     console.error('[expire-trials cron] downgrade failed:', updateErr)
     return NextResponse.json({ error: 'downgrade failed' }, { status: 500 })
   }
 
-  return NextResponse.json({ downgraded: expired.length })
+  return NextResponse.json({ downgraded: expiredIds.length })
 }

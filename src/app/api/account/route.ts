@@ -27,9 +27,21 @@ import {
 export async function GET() {
   try {
     const ctx = await getCurrentAccount();
+
+    // Billing status alongside the existing account/role payload —
+    // the account settings page's billing tab reads this same
+    // endpoint rather than a separate one, since it's the same
+    // "caller's account" resource.
+    const { data: billing } = await ctx.supabase
+      .from("accounts")
+      .select("plan, subscription_status, trial_ends_at, plan_expires_at")
+      .eq("id", ctx.accountId)
+      .maybeSingle();
+
     return NextResponse.json({
       account: ctx.account,
       role: ctx.role,
+      billing: billing ?? null,
     });
   } catch (err) {
     return toErrorResponse(err);
