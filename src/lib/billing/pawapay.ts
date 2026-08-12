@@ -57,7 +57,19 @@ export async function getAvailableProviders(country: string): Promise<PawaPayPro
   const match = countries.find(
     (c: { country?: string }) => c?.country === country,
   )
-  return match?.providers ?? []
+  if (!match) {
+    // Diagnostic only — surfaces exactly what country codes PawaPay
+    // actually returned, since a mismatch here (wrong field name,
+    // different response shape than expected, or the account
+    // genuinely has no config for this country/environment) can't be
+    // told apart from a real "empty" any other way without server
+    // log access.
+    const codesSeen = countries.map((c: { country?: string }) => c?.country)
+    throw new Error(
+      `No active-conf entry matched country "${country}". Countries PawaPay returned: ${JSON.stringify(codesSeen)}`,
+    )
+  }
+  return match.providers ?? []
 }
 
 export interface InitiateDepositArgs {
