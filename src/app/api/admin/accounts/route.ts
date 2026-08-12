@@ -75,6 +75,17 @@ export async function GET() {
 
       const tokens30d = (usageRows ?? []).reduce((sum, r) => sum + (r.total_tokens ?? 0), 0)
 
+      const whatsappConnected = whatsappConfig?.status === 'connected'
+      const messengerConnected = messengerConfig?.status === 'connected'
+      const daysSinceCreated = (Date.now() - new Date(account.created_at).getTime()) / (1000 * 60 * 60 * 24)
+      // A channel that reports "connected" but has delivered zero
+      // messages after several days is a strong signal something's
+      // silently broken (bad webhook signature, expired token, wrong
+      // verify token) — the config LOOKS fine but nothing is actually
+      // flowing through it. Not a certainty, just a flag worth a look.
+      const hasBrokenConfig =
+        (whatsappConnected || messengerConnected) && (messageCount ?? 0) === 0 && daysSinceCreated > 3
+
       return {
         id: account.id,
         name: account.name,
@@ -83,11 +94,12 @@ export async function GET() {
         owner_name: ownerProfile?.full_name ?? null,
         contact_count: contactCount ?? 0,
         message_count: messageCount ?? 0,
-        whatsapp_connected: whatsappConfig?.status === 'connected',
-        messenger_connected: messengerConfig?.status === 'connected',
+        whatsapp_connected: whatsappConnected,
+        messenger_connected: messengerConnected,
         last_activity_at: lastConversation?.last_message_at ?? null,
         tokens_30d: tokens30d,
         suspended: account.suspended,
+        has_broken_config: hasBrokenConfig,
       }
     }),
   )

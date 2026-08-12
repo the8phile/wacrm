@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, ShieldAlert, MessageCircle, PlugZap, Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { Loader2, ShieldAlert, MessageCircle, PlugZap, Search, ArrowUp, ArrowDown, TriangleAlert } from 'lucide-react';
 
 interface AdminAccountRow {
   id: string;
@@ -17,6 +17,7 @@ interface AdminAccountRow {
   last_activity_at: string | null;
   tokens_30d: number;
   suspended: boolean;
+  has_broken_config: boolean;
 }
 
 type ChannelFilter = 'all' | 'whatsapp' | 'messenger' | 'none';
@@ -119,6 +120,7 @@ export default function AdminDashboardPage() {
   const totalMessages = accounts?.reduce((sum, a) => sum + a.message_count, 0) ?? 0;
   const totalContacts = accounts?.reduce((sum, a) => sum + a.contact_count, 0) ?? 0;
   const totalTokens30d = accounts?.reduce((sum, a) => sum + a.tokens_30d, 0) ?? 0;
+  const brokenConfigCount = accounts?.filter((a) => a.has_broken_config).length ?? 0;
 
   return (
     <div className="min-h-screen bg-background px-6 py-8">
@@ -138,13 +140,14 @@ export default function AdminDashboardPage() {
           </Link>
         </div>
 
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-7">
           <StatCard label="Total accounts" value={totalAccounts} />
           <StatCard label="WhatsApp connected" value={whatsappConnectedCount} />
           <StatCard label="Messenger connected" value={messengerConnectedCount} />
           <StatCard label="Total contacts" value={totalContacts} />
           <StatCard label="Total messages" value={totalMessages} />
           <StatCard label="AI tokens (30d)" value={totalTokens30d} />
+          <StatCard label="Broken setups" value={brokenConfigCount} />
         </div>
 
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -197,9 +200,12 @@ export default function AdminDashboardPage() {
                     <Link href={`/admin/accounts/${account.id}`} className="hover:text-primary hover:underline">
                       {account.name}
                     </Link>
-                    {account.suspended && (
-                      <span className="ml-2 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
-                        Suspended
+                    {account.has_broken_config && (
+                      <span
+                        title="A channel is connected but has never received a message — the setup may be broken (bad webhook signature, expired token, etc.)"
+                        className="ml-2 inline-flex items-center gap-1 rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-yellow-500"
+                      >
+                        <TriangleAlert className="size-2.5" /> Broken setup
                       </span>
                     )}
                   </td>
@@ -207,7 +213,7 @@ export default function AdminDashboardPage() {
                     {account.owner_name || account.owner_email || '—'}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusBadge lastActivityAt={account.last_activity_at} />
+                    <StatusBadge lastActivityAt={account.last_activity_at} suspended={account.suspended} />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -263,7 +269,15 @@ function daysSince(dateStr: string): number {
  * a visual signal for where to look first — not a stored status,
  * so it always reflects the real data live.
  */
-function StatusBadge({ lastActivityAt }: { lastActivityAt: string | null }) {
+function StatusBadge({ lastActivityAt, suspended }: { lastActivityAt: string | null; suspended: boolean }) {
+  if (suspended) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-destructive">
+        <span className="size-1.5 rounded-full bg-destructive" /> Suspended
+      </span>
+    );
+  }
+
   if (!lastActivityAt) {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
