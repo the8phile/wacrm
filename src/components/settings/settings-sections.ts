@@ -1,204 +1,90 @@
-'use client';
-
-import { useEffect, useState } from 'react';
-import { Loader2, CheckCircle2, Smartphone } from 'lucide-react';
-import { toast } from 'sonner';
-
-interface BillingInfo {
-  plan: string;
-  subscription_status: string;
-  trial_ends_at: string | null;
-  plan_expires_at: string | null;
-}
-
-interface Provider {
-  provider: string;
-  operationTypes: Record<string, string>;
-}
-
-const PLAN_OPTIONS = [
-  { id: 'starter', name: 'Starter', price: '6,000 FCFA/mo' },
-  { id: 'pro', name: 'Pro', price: '15,000 FCFA/mo' },
-] as const;
+import {
+  Coins,
+  CreditCard,
+  FileText,
+  KeyRound,
+  LayoutGrid,
+  MessageCircle,
+  Palette,
+  PlugZap,
+  Shield,
+  Tags,
+  User,
+  UsersRound,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 
 /**
- * Billing settings panel — shows current plan/trial status and lets
- * the account owner pay for Starter/Pro via PawaPay mobile money.
- * One-time 30-day charges for now, not auto-recurring (see
- * plan-limits.ts and the /api/billing routes for the full flow).
+ * Settings information architecture for the redesigned page.
+ *
+ * The flat tab strip became a grouped left rail with a new Overview
+ * landing. The URL query param stays `?tab=` (deep-linkable, and it
+ * keeps the existing links in sidebar.tsx / header.tsx working) — we
+ * just map the old values onto the new sections.
  */
-export function BillingSettings() {
-  const [billing, setBilling] = useState<BillingInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedPlan, setSelectedPlan] = useState<'starter' | 'pro' | null>(null);
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [pendingDepositId, setPendingDepositId] = useState<string | null>(null);
-  const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
+export const SETTINGS_SECTIONS = [
+  'overview',
+  'profile',
+  'security',
+  'appearance',
+  'whatsapp',
+  'messenger',
+  'templates',
+  'quick-replies',
+  'fields',
+  'deals',
+  'members',
+  'api',
+  'billing',
+] as const;
 
-  useEffect(() => {
-    fetch('/api/account')
-      .then((res) => res.json())
-      .then((data) => setBilling(data.billing))
-      .finally(() => setLoading(false));
-  }, []);
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
-  useEffect(() => {
-    if (!selectedPlan) return;
-    fetch('/api/billing/providers?country=CMR')
-      .then((res) => res.json())
-      .then((data) => setProviders(data.providers ?? []))
-      .catch(() => setProviders([]));
-  }, [selectedPlan]);
+export const DEFAULT_SECTION: SettingsSection = 'overview';
 
-  // Poll for payment completion once a deposit is in flight.
-  useEffect(() => {
-    if (!pendingDepositId) return;
-    const interval = setInterval(async () => {
-      const res = await fetch(`/api/billing/status/${pendingDepositId}`);
-      const data = await res.json();
-      setPaymentStatus(data.status);
-      if (data.status === 'COMPLETED' || data.status === 'FAILED') {
-        clearInterval(interval);
-        if (data.status === 'COMPLETED') {
-          toast.success('Payment received! Your plan is now active.');
-          fetch('/api/account')
-            .then((res) => res.json())
-            .then((data) => setBilling(data.billing));
-          setPendingDepositId(null);
-          setSelectedPlan(null);
-        } else {
-          toast.error('Payment failed. Please try again.');
-          setPendingDepositId(null);
-        }
-      }
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [pendingDepositId]);
+/** Rail grouping. `adminOnly` items are hidden for non-admins. */
+export interface SectionMeta {
+  id: SettingsSection;
+  label: string;
+  icon: LucideIcon;
+  group: 'top' | 'account' | 'workspace';
+}
 
-  const handlePay = async () => {
-    if (!selectedPlan || !selectedProvider || !phoneNumber.trim()) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch('/api/billing/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: selectedPlan, phoneNumber: phoneNumber.trim(), provider: selectedProvider }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? 'Failed to start payment');
-      toast.success('Check your phone to approve the payment.');
-      setPendingDepositId(data.depositId);
-      setPaymentStatus('SUBMITTED');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to start payment');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+export const SECTION_META: Record<SettingsSection, SectionMeta> = {
+  overview: { id: 'overview', label: 'Overview', icon: LayoutGrid, group: 'top' },
+  profile: { id: 'profile', label: 'Your profile', icon: User, group: 'account' },
+  security: { id: 'security', label: 'Login & security', icon: Shield, group: 'account' },
+  appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
+  whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
+  messenger: { id: 'messenger', label: 'Messenger', icon: MessageCircle, group: 'workspace' },
+  templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace' },
+  'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace' },
+  fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace' },
+  deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace' },
+  members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
+  api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace' },
+  billing: { id: 'billing', label: 'Billing', icon: CreditCard, group: 'account' },
+};
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [
+  { label: null, group: 'top' },
+  { label: 'Account', group: 'account' },
+  { label: 'Workspace', group: 'workspace' },
+];
 
-  return (
-    <div className="max-w-2xl">
-      {billing && (
-        <div className="mb-8 rounded-lg border border-border bg-card px-4 py-4">
-          <p className="text-sm text-muted-foreground">Current plan</p>
-          <p className="text-xl font-semibold capitalize text-foreground">{billing.plan}</p>
-          {billing.subscription_status === 'trialing' && billing.trial_ends_at && (
-            <p className="mt-1 text-xs text-blue-400">
-              Trial ends {new Date(billing.trial_ends_at).toLocaleDateString()}
-            </p>
-          )}
-          {billing.subscription_status === 'active' && billing.plan_expires_at && (
-            <p className="mt-1 text-xs text-green-500">
-              Renews by {new Date(billing.plan_expires_at).toLocaleDateString()}
-            </p>
-          )}
-        </div>
-      )}
+function isSection(value: string | null): value is SettingsSection {
+  return !!value && (SETTINGS_SECTIONS as readonly string[]).includes(value);
+}
 
-      {pendingDepositId ? (
-        <div className="rounded-lg border border-border bg-card px-4 py-6 text-center">
-          <Loader2 className="mx-auto mb-3 size-6 animate-spin text-muted-foreground" />
-          <p className="font-medium text-foreground">Waiting for payment approval…</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Check your phone and approve the mobile money request. This updates automatically.
-          </p>
-          <p className="mt-2 text-xs text-muted-foreground">Status: {paymentStatus}</p>
-        </div>
-      ) : (
-        <>
-          <div className="mb-6 grid gap-3 sm:grid-cols-2">
-            {PLAN_OPTIONS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setSelectedPlan(p.id)}
-                className={`rounded-lg border px-4 py-4 text-left transition-colors ${
-                  selectedPlan === p.id
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-primary/50'
-                }`}
-              >
-                <p className="font-medium text-foreground">{p.name}</p>
-                <p className="text-sm text-muted-foreground">{p.price}</p>
-              </button>
-            ))}
-          </div>
-
-          {selectedPlan && (
-            <div className="rounded-lg border border-border bg-card px-4 py-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                <Smartphone className="size-4" /> Pay with mobile money
-              </div>
-
-              <div className="mb-3 flex flex-col gap-2">
-                <label className="text-xs text-muted-foreground">Provider</label>
-                <select
-                  value={selectedProvider}
-                  onChange={(e) => setSelectedProvider(e.target.value)}
-                  className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground"
-                >
-                  <option value="">Select provider…</option>
-                  {providers.map((p) => (
-                    <option key={p.provider} value={p.provider}>
-                      {p.provider}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="mb-4 flex flex-col gap-2">
-                <label className="text-xs text-muted-foreground">Phone number</label>
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="6XXXXXXXX"
-                  className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-
-              <button
-                onClick={handlePay}
-                disabled={submitting || !selectedProvider || !phoneNumber.trim()}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                {submitting ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-                Pay for {PLAN_OPTIONS.find((p) => p.id === selectedPlan)?.name}
-              </button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
+/**
+ * Resolve a raw `?tab=` value to a section. Legacy tabs from the old
+ * flat layout collapse onto their new home (Tags + Custom fields → the
+ * merged "Fields & tags" section). Anything unknown falls back to the
+ * Overview landing.
+ */
+export function resolveSection(raw: string | null): SettingsSection {
+  if (raw === 'tags' || raw === 'custom-fields') return 'fields';
+  if (isSection(raw)) return raw;
+  return DEFAULT_SECTION;
 }
