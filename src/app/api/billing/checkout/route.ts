@@ -41,6 +41,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'phoneNumber and provider are required' }, { status: 400 })
   }
 
+  // PawaPay expects the full MSISDN including country code (e.g.
+  // "237670114225"), but a customer naturally types their local
+  // 9-digit number (e.g. "670114225") — normalize rather than reject,
+  // since this is Cameroon-only (country="CMR" everywhere else in
+  // this billing flow) so the 237 prefix is always correct here.
+  const digitsOnly = phoneNumber.replace(/[^\d]/g, '')
+  const normalizedPhone = digitsOnly.startsWith('237') ? digitsOnly : `237${digitsOnly.replace(/^0+/, '')}`
+
   const amountFcfa = getPlanLimits(plan as PlanId).priceFcfa
   const depositId = randomUUID()
 
@@ -61,7 +69,7 @@ export async function POST(request: Request) {
       depositId,
       amount: amountFcfa,
       currency: 'XAF',
-      phoneNumber,
+      phoneNumber: normalizedPhone,
       provider,
     })
 
