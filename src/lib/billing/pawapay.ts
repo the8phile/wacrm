@@ -48,7 +48,16 @@ export async function getAvailableProviders(country: string): Promise<PawaPayPro
     throw new Error(`PawaPay active-conf request failed (${res.status}): ${bodyText || 'no response body'}`)
   }
   const data = await res.json()
-  return data?.countries?.[0]?.providers ?? []
+  // The response is a list of every enabled country, in whatever
+  // order PawaPay returns them — NOT scoped to the `country` query
+  // param the way the endpoint name might suggest. Find the entry
+  // that actually matches, rather than blindly taking countries[0]
+  // (which silently returned a *different* country's providers here).
+  const countries = data?.countries ?? []
+  const match = countries.find(
+    (c: { country?: string }) => c?.country === country,
+  )
+  return match?.providers ?? []
 }
 
 export interface InitiateDepositArgs {
