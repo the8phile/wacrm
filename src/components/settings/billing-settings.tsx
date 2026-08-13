@@ -90,6 +90,11 @@ export function BillingSettings() {
   useEffect(() => {
     setProviderError(null);
     setSelectedProvider('');
+    // A phone number typed for one country's expected length is
+    // meaningless (and dangerous — wrong length) for a different
+    // country's calling code, so clear it on every country switch
+    // rather than let it silently carry over.
+    setPhoneNumber('');
     fetch(`/api/billing/providers?country=${selectedCountry}`)
       .then(async (res) => {
         const data = await res.json();

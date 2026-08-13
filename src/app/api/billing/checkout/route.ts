@@ -98,8 +98,12 @@ export async function POST(request: Request) {
         .from('payments')
         .update({ status: 'failed' })
         .eq('pawapay_deposit_id', depositId)
+      const reason = result.failureReason?.failureMessage ?? 'Payment request was rejected'
+      // Include exactly what we sent — the number PawaPay is judging
+      // "too long/short" against — so a length-mismatch report can be
+      // traced immediately instead of guessed at.
       return NextResponse.json(
-        { error: result.failureReason?.failureMessage ?? 'Payment request was rejected' },
+        { error: `${reason} (sent: ${normalizedPhone}, ${country.name})` },
         { status: 400 },
       )
     }
