@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Check } from 'lucide-react';
+import { Loader2, Check, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { SUPPORTED_COUNTRIES } from '@/lib/billing/countries';
 
@@ -67,6 +67,7 @@ export function BillingSettings() {
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<'starter' | 'pro'>('starter');
   const [selectedCountry, setSelectedCountry] = useState(SUPPORTED_COUNTRIES[0].code);
+  const [countryMenuOpen, setCountryMenuOpen] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [selectedProvider, setSelectedProvider] = useState('');
@@ -249,20 +250,56 @@ export function BillingSettings() {
             ))}
           </div>
 
-          {/* Country */}
+          {/* Country — a custom dropdown, not a native <select>, since
+              native <option> elements can't render images (only the
+              picked value could show a flag icon otherwise). */}
           <div className="mb-4">
             <label className="mb-1.5 block text-xs text-muted-foreground">Country</label>
-            <select
-              value={selectedCountry}
-              onChange={(e) => setSelectedCountry(e.target.value)}
-              className="w-full rounded-lg border border-border bg-muted px-3 py-2.5 text-sm text-foreground"
-            >
-              {SUPPORTED_COUNTRIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.flag} {c.name}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setCountryMenuOpen((v) => !v)}
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2.5 text-left text-sm text-foreground"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- small flag icon from flagcdn.com */}
+                <img
+                  src={`https://flagcdn.com/24x18/${country.iso2}.png`}
+                  alt={`${country.name} flag`}
+                  width={20}
+                  height={15}
+                  className="rounded-sm"
+                />
+                <span className="flex-1">{country.name}</span>
+                <ChevronDown className="size-4 text-muted-foreground" />
+              </button>
+              {countryMenuOpen && (
+                <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                  {SUPPORTED_COUNTRIES.map((c) => (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCountry(c.code);
+                        setCountryMenuOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted ${
+                        c.code === selectedCountry ? 'bg-muted' : ''
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- small flag icon from flagcdn.com */}
+                      <img
+                        src={`https://flagcdn.com/24x18/${c.iso2}.png`}
+                        alt={`${c.name} flag`}
+                        width={20}
+                        height={15}
+                        className="rounded-sm"
+                      />
+                      <span className="text-foreground">{c.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Amount — computed from the USD price, converted to the
@@ -287,7 +324,16 @@ export function BillingSettings() {
           <div className="mb-4">
             <label className="mb-1.5 block text-xs text-muted-foreground">Phone number</label>
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2.5">
-              <span aria-hidden="true">{country.flag}</span>
+              {/* eslint-disable-next-line @next/next/no-img-element -- small
+                  flag icon from flagcdn.com, not worth Next's Image
+                  pipeline for a 20x15px country flag */}
+              <img
+                src={`https://flagcdn.com/24x18/${country.iso2}.png`}
+                alt={`${country.name} flag`}
+                width={20}
+                height={15}
+                className="rounded-sm"
+              />
               <span className="text-sm text-muted-foreground">+{country.callingCode}</span>
               <input
                 type="tel"
