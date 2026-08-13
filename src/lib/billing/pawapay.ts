@@ -115,39 +115,6 @@ export async function initiateDeposit(args: InitiateDepositArgs): Promise<PawaPa
   return res.json()
 }
 
-export interface InitiatePaymentPageArgs {
-  depositId: string
-  amount: number
-  returnUrl: string
-  reason: string
-}
-
-export interface PawaPayPaymentPageResponse {
-  redirectUrl?: string
-  rejectionReason?: { rejectionCode: string; rejectionMessage: string }
-}
-
-/**
- * PawaPay's hosted payment page — the customer picks their own
- * provider and enters their own phone number on PawaPay's own UI,
- * rather than us building that form ourselves. We only fix the
- * amount (the plan price) here; msisdn/provider are deliberately
- * left for the customer to choose on PawaPay's page.
- */
-export async function initiatePaymentPage(args: InitiatePaymentPageArgs): Promise<PawaPayPaymentPageResponse> {
-  const res = await fetch(`${baseUrl()}/paymentpage`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({
-      depositId: args.depositId,
-      returnUrl: args.returnUrl,
-      amount: String(args.amount),
-      reason: args.reason,
-    }),
-  })
-  return res.json()
-}
-
 export interface PawaPayDepositStatus {
   depositId: string
   status: 'ACCEPTED' | 'COMPLETED' | 'FAILED' | 'SUBMITTED'

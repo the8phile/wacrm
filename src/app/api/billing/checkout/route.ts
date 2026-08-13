@@ -2,41 +2,17 @@ import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { getPlanLimits, type PlanId } from '@/lib/billing/plan-limits'
-import { initiatePaymentPage } from '@/lib/billing/pawapay'
-
-/**
- * Resolves this deployment's own public URL, for building the
- * returnUrl PawaPay redirects the customer back to after payment.
- * Mirrors the same NEXT_PUBLIC_SITE_URL-first pattern already used by
- * the invitations route, falling back to the request's own forwarded
- * host if that env var isn't set.
- */
-function getBaseUrl(request: Request): string {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim()
-  if (explicit) return explicit.replace(/\/+$/, '')
-
-  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
-  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
-  if (forwardedHost) return `${forwardedProto || 'https'}://${forwardedHost}`
-
-  return new URL(request.url).origin
-}
+import { initiateDeposit } from '@/lib/billing/pawapay'
 
 /**
  * POST /api/billing/checkout
  *
- * Starts a PawaPay hosted payment-page session for a plan upgrade.
- * Only the account owner can initiate a real charge — this is a
- * spend decision, not something any team member should trigger.
- *
- * Uses PawaPay's own hosted UI (redirectUrl) for provider/phone
- * selection rather than building that form ourselves — the plan
- * price is fixed on our side, everything else is the customer's
- * choice on PawaPay's page.
+ * Starts a PawaPay mobile money deposit for a plan upgrade. Only the
+ * account owner can initiate a real charge — this is a spend
+ * decision, not something any team member should be able to trigger.
  *
  * Creates a `payments` row up front (status='pending') so the
- * callback (or the status-polling fallback, triggered by the
- * depositId carried through returnUrl) has something to update
+ * callback (or the status-polling fallback) has something to update
  * regardless of which arrives first or whether the customer abandons
  * the flow entirely.
  */
@@ -48,12 +24,30 @@ export async function POST(request: Request) {
     return toErrorResponse(err)
   }
 
-  const body = (await request.json().catch(() => null)) as { plan?: string } | null
+  const body = (await request.json().catch(() => null)) as {
+    plan?: string
+    phoneNumber?: string
+    provider?: string
+  } | null
+
   const plan = body?.plan
+  const phoneNumber = body?.phoneNumber?.trim()
+  const provider = body?.provider?.trim()
 
   if (plan !== 'starter' && plan !== 'pro') {
     return NextResponse.json({ error: "plan must be 'starter' or 'pro'" }, { status: 400 })
   }
+  if (!phoneNumber || !provider) {
+    return NextResponse.json({ error: 'phoneNumber and provider are required' }, { status: 400 })
+  }
+
+  // PawaPay expects the full MSISDN including country code (e.g.
+  // "237670114225"), but a customer naturally types their local
+  // 9-digit number (e.g. "670114225") — normalize rather than reject,
+  // since this is Cameroon-only (country="CMR" everywhere else in
+  // this billing flow) so the 237 prefix is always correct here.
+  const digitsOnly = phoneNumber.replace(/[^\d]/g, '')
+  const normalizedPhone = digitsOnly.startsWith('237') ? digitsOnly : `237${digitsOnly.replace(/^0+/, '')}`
 
   const amountFcfa = getPlanLimits(plan as PlanId).priceFcfa
   const depositId = randomUUID()
@@ -70,28 +64,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to start checkout' }, { status: 500 })
   }
 
-  const returnUrl = `${getBaseUrl(request)}/settings?tab=billing&depositId=${depositId}`
-
   try {
-    const result = await initiatePaymentPage({
+    const result = await initiateDeposit({
       depositId,
       amount: amountFcfa,
-      returnUrl,
-      reason: `wacrm ${plan} plan`,
+      currency: 'XAF',
+      phoneNumber: normalizedPhone,
+      provider,
     })
 
-    if (!result.redirectUrl) {
+    if (result.status !== 'ACCEPTED') {
       await ctx.supabase
         .from('payments')
         .update({ status: 'failed' })
         .eq('pawapay_deposit_id', depositId)
       return NextResponse.json(
-        { error: result.rejectionReason?.rejectionMessage ?? 'Payment page request was rejected' },
+        { error: result.failureReason?.failureMessage ?? 'Payment request was rejected' },
         { status: 400 },
       )
     }
 
-    return NextResponse.json({ depositId, redirectUrl: result.redirectUrl })
+    return NextResponse.json({ depositId, status: 'ACCEPTED' })
   } catch (err) {
     console.error('[billing/checkout] PawaPay request failed:', err)
     await ctx.supabase
