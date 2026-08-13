@@ -3,13 +3,21 @@ import { randomUUID } from 'node:crypto'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { getPlanLimits, type PlanId } from '@/lib/billing/plan-limits'
 import { initiateDeposit, checkDepositStatus } from '@/lib/billing/pawapay'
+import { getCountry, normalizePhoneForCountry } from '@/lib/billing/countries'
+import { getExchangeRate, convertUsdAmount } from '@/lib/billing/currency'
 
 /**
  * POST /api/billing/checkout
  *
- * Starts a PawaPay mobile money deposit for a plan upgrade. Only the
- * account owner can initiate a real charge — this is a spend
- * decision, not something any team member should be able to trigger.
+ * Starts a PawaPay mobile money deposit for a plan upgrade, for any
+ * of the countries in src/lib/billing/countries.ts. Only the account
+ * owner can initiate a real charge — this is a spend decision, not
+ * something any team member should be able to trigger.
+ *
+ * Plans are priced in USD (see plan-limits.ts) and converted into
+ * the customer's own currency here using a cached exchange rate
+ * (never a live external call during checkout itself — see
+ * src/lib/billing/currency.ts).
  *
  * Creates a `payments` row up front (status='pending') so the
  * callback (or the status-polling fallback) has something to update
@@ -26,36 +34,48 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as {
     plan?: string
+    country?: string
     phoneNumber?: string
     provider?: string
   } | null
 
   const plan = body?.plan
+  const countryCode = body?.country
   const phoneNumber = body?.phoneNumber?.trim()
   const provider = body?.provider?.trim()
 
   if (plan !== 'starter' && plan !== 'pro') {
     return NextResponse.json({ error: "plan must be 'starter' or 'pro'" }, { status: 400 })
   }
+  const country = countryCode ? getCountry(countryCode) : undefined
+  if (!country) {
+    return NextResponse.json({ error: 'Unsupported or missing country' }, { status: 400 })
+  }
   if (!phoneNumber || !provider) {
     return NextResponse.json({ error: 'phoneNumber and provider are required' }, { status: 400 })
   }
 
-  // PawaPay expects the full MSISDN including country code (e.g.
-  // "237670114225"), but a customer naturally types their local
-  // 9-digit number (e.g. "670114225") — normalize rather than reject,
-  // since this is Cameroon-only (country="CMR" everywhere else in
-  // this billing flow) so the 237 prefix is always correct here.
-  const digitsOnly = phoneNumber.replace(/[^\d]/g, '')
-  const normalizedPhone = digitsOnly.startsWith('237') ? digitsOnly : `237${digitsOnly.replace(/^0+/, '')}`
+  const rate = await getExchangeRate(ctx.supabase, country.currency)
+  if (rate === null) {
+    // No cached rate for this currency yet (e.g. the refresh cron
+    // hasn't run since it was added, or the provider dropped it) —
+    // refuse rather than guess a price.
+    return NextResponse.json(
+      { error: `Pricing temporarily unavailable for ${country.currency}. Please try again shortly.` },
+      { status: 503 },
+    )
+  }
 
-  const amountFcfa = getPlanLimits(plan as PlanId).priceFcfa
+  const priceUsd = getPlanLimits(plan as PlanId).priceUsd
+  const localAmount = convertUsdAmount(priceUsd, rate)
+  const normalizedPhone = normalizePhoneForCountry(phoneNumber, country)
   const depositId = randomUUID()
 
   const { error: insertErr } = await ctx.supabase.from('payments').insert({
     account_id: ctx.accountId,
     plan,
-    amount_fcfa: amountFcfa,
+    amount: localAmount,
+    currency: country.currency,
     pawapay_deposit_id: depositId,
     status: 'pending',
   })
@@ -67,8 +87,8 @@ export async function POST(request: Request) {
   try {
     const result = await initiateDeposit({
       depositId,
-      amount: amountFcfa,
-      currency: 'XAF',
+      amount: localAmount,
+      currency: country.currency,
       phoneNumber: normalizedPhone,
       provider,
     })

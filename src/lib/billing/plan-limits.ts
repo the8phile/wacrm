@@ -2,7 +2,10 @@ export type PlanId = 'free' | 'starter' | 'pro'
 
 export interface PlanLimits {
   name: string
-  priceFcfa: number
+  /** Canonical USD price — converted into the customer's local
+   *  currency at checkout time (see src/lib/billing/currency.ts),
+   *  since PawaPay charges each country in its own currency. */
+  priceUsd: number
   maxContacts: number | null // null = unlimited
   maxAiRepliesPerMonth: number | null // null = unlimited
   multiChannel: boolean // both WhatsApp + Messenger, vs. one only
@@ -16,21 +19,21 @@ export interface PlanLimits {
 export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
   free: {
     name: 'Free',
-    priceFcfa: 0,
+    priceUsd: 0,
     maxContacts: 50,
     maxAiRepliesPerMonth: 50,
     multiChannel: false,
   },
   starter: {
     name: 'Starter',
-    priceFcfa: 6000,
+    priceUsd: 10,
     maxContacts: 500,
     maxAiRepliesPerMonth: 500,
     multiChannel: true,
   },
   pro: {
     name: 'Pro',
-    priceFcfa: 15000,
+    priceUsd: 25,
     maxContacts: null,
     maxAiRepliesPerMonth: null,
     multiChannel: true,

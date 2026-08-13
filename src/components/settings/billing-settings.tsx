@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { SUPPORTED_COUNTRIES } from '@/lib/billing/countries';
 
 interface BillingInfo {
   plan: string;
@@ -17,8 +18,8 @@ interface Provider {
 }
 
 const PLAN_OPTIONS = [
-  { id: 'starter', name: 'Starter', priceLabel: '6,000', price: '6,000 FCFA/mo' },
-  { id: 'pro', name: 'Pro', priceLabel: '15,000', price: '15,000 FCFA/mo' },
+  { id: 'starter', name: 'Starter' },
+  { id: 'pro', name: 'Pro' },
 ] as const;
 
 /**
@@ -34,7 +35,15 @@ function providerDisplay(code: string): { name: string; bg: string; fg: string }
   if (upper.includes('MTN')) return { name: 'MTN', bg: 'bg-yellow-400', fg: 'text-yellow-950' };
   if (upper.includes('ORANGE')) return { name: 'Orange', bg: 'bg-orange-500', fg: 'text-white' };
   if (upper.includes('AIRTEL')) return { name: 'Airtel', bg: 'bg-red-500', fg: 'text-white' };
-  if (upper.includes('VODAFONE')) return { name: 'Vodafone', bg: 'bg-red-600', fg: 'text-white' };
+  if (upper.includes('VODAFONE') || upper.includes('VODACOM')) return { name: 'Vodafone', bg: 'bg-red-600', fg: 'text-white' };
+  if (upper.includes('MPESA') || upper.includes('M-PESA')) return { name: 'M-PESA', bg: 'bg-green-600', fg: 'text-white' };
+  if (upper.includes('TIGO')) return { name: 'Tigo', bg: 'bg-blue-500', fg: 'text-white' };
+  if (upper.includes('HALOPESA')) return { name: 'Halopesa', bg: 'bg-purple-500', fg: 'text-white' };
+  if (upper.includes('ZAMTEL')) return { name: 'Zamtel', bg: 'bg-teal-500', fg: 'text-white' };
+  if (upper.includes('TNM')) return { name: 'TNM', bg: 'bg-indigo-500', fg: 'text-white' };
+  if (upper.includes('WAVE')) return { name: 'Wave', bg: 'bg-sky-500', fg: 'text-white' };
+  if (upper.includes('FREE')) return { name: 'Free', bg: 'bg-pink-500', fg: 'text-white' };
+  if (upper.includes('TELECEL')) return { name: 'Telecel', bg: 'bg-rose-500', fg: 'text-white' };
   // Fallback: title-case the first underscore-separated segment.
   const first = code.split('_')[0] ?? code;
   return {
@@ -47,22 +56,28 @@ function providerDisplay(code: string): { name: string; bg: string; fg: string }
 /**
  * Billing settings panel — visually modeled on PawaPay's own hosted
  * payment page (operator logo cards, pill buttons, "Powered by
- * pawaPay" footer) while staying an in-app form rather than a
- * redirect, so the plan/provider/phone flow all happens on this one
- * screen. Same underlying checkout API as before (custom
- * phoneNumber/provider deposit, not the hosted paymentpage product).
+ * pawaPay" footer). Supports every African country PawaPay has an
+ * active deposit provider for (see countries.ts) — selecting a
+ * country re-fetches its live provider list and its converted price
+ * (plans are priced in USD, converted to local currency server-side;
+ * see /api/billing/quote).
  */
 export function BillingSettings() {
   const [billing, setBilling] = useState<BillingInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<'starter' | 'pro'>('starter');
+  const [selectedCountry, setSelectedCountry] = useState(SUPPORTED_COUNTRIES[0].code);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [selectedProvider, setSelectedProvider] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [quote, setQuote] = useState<{ currency: string; amount: number } | null>(null);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingDepositId, setPendingDepositId] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
+
+  const country = SUPPORTED_COUNTRIES.find((c) => c.code === selectedCountry)!;
 
   useEffect(() => {
     fetch('/api/account')
@@ -71,9 +86,11 @@ export function BillingSettings() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Providers depend only on the selected country.
   useEffect(() => {
     setProviderError(null);
-    fetch('/api/billing/providers?country=CMR')
+    setSelectedProvider('');
+    fetch(`/api/billing/providers?country=${selectedCountry}`)
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
@@ -83,14 +100,30 @@ export function BillingSettings() {
         const list = data.providers ?? [];
         setProviders(list);
         if (list.length === 0) {
-          setProviderError('PawaPay returned no available providers for Cameroon (CMR) right now.');
+          setProviderError(`PawaPay returned no available providers for ${country.name} right now.`);
         }
       })
       .catch((err) => {
         setProviders([]);
         setProviderError(err instanceof Error ? err.message : 'Failed to load payment providers');
       });
-  }, []);
+  }, [selectedCountry]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Price quote depends on both the selected country and plan.
+  useEffect(() => {
+    setQuoteError(null);
+    fetch(`/api/billing/quote?country=${selectedCountry}&plan=${selectedPlan}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+        return data;
+      })
+      .then((data) => setQuote({ currency: data.currency, amount: data.amount }))
+      .catch((err) => {
+        setQuote(null);
+        setQuoteError(err instanceof Error ? err.message : 'Failed to load price');
+      });
+  }, [selectedCountry, selectedPlan]);
 
   // Poll for payment completion once a deposit is in flight.
   useEffect(() => {
@@ -123,7 +156,12 @@ export function BillingSettings() {
       const res = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: selectedPlan, phoneNumber: phoneNumber.trim(), provider: selectedProvider }),
+        body: JSON.stringify({
+          plan: selectedPlan,
+          country: selectedCountry,
+          phoneNumber: phoneNumber.trim(),
+          provider: selectedProvider,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? 'Failed to start payment');
@@ -189,9 +227,8 @@ export function BillingSettings() {
             </div>
           </div>
 
-          {/* Plan switch — small pill toggle above the amount, so the rest
-              of the form matches the reference layout exactly. */}
-          <div className="mb-5 flex gap-1 rounded-full border border-border bg-muted p-1">
+          {/* Plan switch */}
+          <div className="mb-4 flex gap-1 rounded-full border border-border bg-muted p-1">
             {PLAN_OPTIONS.map((p) => (
               <button
                 key={p.id}
@@ -207,12 +244,37 @@ export function BillingSettings() {
             ))}
           </div>
 
-          {/* Amount — read-only, since the plan price is fixed. */}
+          {/* Country */}
+          <div className="mb-4">
+            <label className="mb-1.5 block text-xs text-muted-foreground">Country</label>
+            <select
+              value={selectedCountry}
+              onChange={(e) => setSelectedCountry(e.target.value)}
+              className="w-full rounded-lg border border-border bg-muted px-3 py-2.5 text-sm text-foreground"
+            >
+              {SUPPORTED_COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Amount — computed from the USD price, converted to the
+              selected country's currency. */}
           <div className="mb-4">
             <label className="mb-1.5 block text-xs text-muted-foreground">Amount</label>
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2.5">
-              <span className="text-xs font-medium text-muted-foreground">XAF</span>
-              <span className="text-sm font-medium text-foreground">{activePlan.priceLabel}</span>
+              {quoteError ? (
+                <span className="text-xs text-destructive">{quoteError}</span>
+              ) : quote ? (
+                <>
+                  <span className="text-xs font-medium text-muted-foreground">{quote.currency}</span>
+                  <span className="text-sm font-medium text-foreground">{quote.amount.toLocaleString()}</span>
+                </>
+              ) : (
+                <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+              )}
             </div>
           </div>
 
@@ -220,13 +282,13 @@ export function BillingSettings() {
           <div className="mb-4">
             <label className="mb-1.5 block text-xs text-muted-foreground">Phone number</label>
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2.5">
-              <span aria-hidden="true">🇨🇲</span>
-              <span className="text-sm text-muted-foreground">+237</span>
+              <span aria-hidden="true">{country.flag}</span>
+              <span className="text-sm text-muted-foreground">+{country.callingCode}</span>
               <input
                 type="tel"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="6XX XX XX XX"
+                placeholder={'X'.repeat(country.phoneDigits)}
                 className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
               />
             </div>
@@ -282,7 +344,7 @@ export function BillingSettings() {
             </button>
             <button
               onClick={handlePay}
-              disabled={submitting || !selectedProvider || !phoneNumber.trim()}
+              disabled={submitting || !selectedProvider || !phoneNumber.trim() || !quote}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {submitting && <Loader2 className="size-4 animate-spin" />}
