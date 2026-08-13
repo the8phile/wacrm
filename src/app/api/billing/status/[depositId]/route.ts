@@ -43,11 +43,17 @@ export async function GET(
     return NextResponse.json({ status: 'FAILED' })
   }
 
-  const remote = await checkDepositStatus(depositId)
-  if (!remote) {
+  const check = await checkDepositStatus(depositId)
+  if (check.outcome !== 'found') {
+    // 'not_found' this early (payment just created) usually just
+    // means PawaPay hasn't indexed it yet — and 'unknown' means we
+    // couldn't get a clean answer either way. Neither is safe to
+    // treat as failed here; only the recheck cron (which waits 15
+    // minutes, giving PawaPay time to catch up) makes that call.
     return NextResponse.json({ status: 'PENDING' })
   }
 
+  const remote = check.data
   if (remote.status === 'COMPLETED' && payment.status !== 'completed') {
     await activatePlanForPayment(ctx.supabase, payment)
   } else if (remote.status === 'FAILED') {

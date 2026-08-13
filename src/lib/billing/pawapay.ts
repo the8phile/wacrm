@@ -121,12 +121,36 @@ export interface PawaPayDepositStatus {
   failureReason?: { failureCode: string; failureMessage: string }
 }
 
-export async function checkDepositStatus(depositId: string): Promise<PawaPayDepositStatus | null> {
-  const res = await fetch(`${baseUrl()}/deposits/${depositId}`, { headers: authHeaders() })
-  if (!res.ok) return null
-  const data = await res.json()
-  if (data?.status !== 'FOUND') return null
-  return data.data
+/**
+ * Distinguishes three genuinely different outcomes, matching
+ * PawaPay's own documented recovery pattern:
+ *   - found: deposit exists at PawaPay — data carries its real status
+ *   - not_found: PawaPay confirms it never received this deposit —
+ *     safe to mark failed on our side
+ *   - unknown: we couldn't get a clean answer (network error, non-200
+ *     response) — must NOT be treated as not_found, since that could
+ *     wrongly fail a payment that's actually in flight. Leave pending
+ *     for the next check.
+ */
+export type DepositStatusCheck =
+  | { outcome: 'found'; data: PawaPayDepositStatus }
+  | { outcome: 'not_found' }
+  | { outcome: 'unknown' }
+
+export async function checkDepositStatus(depositId: string): Promise<DepositStatusCheck> {
+  let res: Response
+  try {
+    res = await fetch(`${baseUrl()}/deposits/${depositId}`, { headers: authHeaders() })
+  } catch {
+    return { outcome: 'unknown' }
+  }
+  if (!res.ok) return { outcome: 'unknown' }
+
+  const data = await res.json().catch(() => null)
+  if (!data) return { outcome: 'unknown' }
+  if (data.status === 'NOT_FOUND') return { outcome: 'not_found' }
+  if (data.status === 'FOUND' && data.data) return { outcome: 'found', data: data.data }
+  return { outcome: 'unknown' }
 }
 
 /**

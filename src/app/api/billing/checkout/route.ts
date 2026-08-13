@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { getPlanLimits, type PlanId } from '@/lib/billing/plan-limits'
-import { initiateDeposit } from '@/lib/billing/pawapay'
+import { initiateDeposit, checkDepositStatus } from '@/lib/billing/pawapay'
 
 /**
  * POST /api/billing/checkout
@@ -86,11 +86,28 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ depositId, status: 'ACCEPTED' })
   } catch (err) {
-    console.error('[billing/checkout] PawaPay request failed:', err)
-    await ctx.supabase
-      .from('payments')
-      .update({ status: 'failed' })
-      .eq('pawapay_deposit_id', depositId)
-    return NextResponse.json({ error: 'Failed to reach payment provider' }, { status: 500 })
+    // PawaPay's own guidance: a network error/timeout here doesn't
+    // tell you whether the request actually reached them — it might
+    // have been accepted and we just never saw the response. Check
+    // before assuming failure, so a real payment in flight isn't
+    // wrongly marked failed (which would mean charging the customer
+    // without ever activating their plan).
+    console.error('[billing/checkout] PawaPay request failed, checking whether it landed:', err)
+    const check = await checkDepositStatus(depositId)
+
+    if (check.outcome === 'not_found') {
+      // Confirmed it never reached PawaPay. Safe to fail.
+      await ctx.supabase
+        .from('payments')
+        .update({ status: 'failed' })
+        .eq('pawapay_deposit_id', depositId)
+      return NextResponse.json({ error: 'Failed to reach payment provider' }, { status: 500 })
+    }
+
+    // 'found' or 'unknown' — either it did land at PawaPay, or we
+    // simply can't tell yet. Leave status as 'pending' either way;
+    // the callback and the recheck cron (see
+    // /api/cron/recheck-pending-payments) will resolve it from here.
+    return NextResponse.json({ depositId, status: 'ACCEPTED' })
   }
 }
