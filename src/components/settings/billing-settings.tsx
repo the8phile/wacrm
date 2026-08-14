@@ -235,16 +235,6 @@ export function BillingSettings() {
             Check your phone and approve the mobile money request. This updates automatically.
           </p>
           <p className="mt-2 text-xs text-muted-foreground">Status: {paymentStatus}</p>
-          {/* Temporary diagnostic — shows exactly what PawaPay sent for
-              this provider, so we can tell "no data for this provider"
-              apart from a real bug without needing dev tools. Remove
-              once confirmed working. */}
-          <p className="mt-2 break-all text-[10px] text-muted-foreground/60">
-            debug: provider={selectedProvider || 'none'} | hasProviderInfo=
-            {String(!!activeProviderInfo)} | hasPinPrompt=
-            {String(!!activeProviderInfo?.pinPromptInstructions)} | channels=
-            {activeProviderInfo?.pinPromptInstructions?.channels.map((c) => c.type).join(',') || 'none'}
-          </p>
           {fallbackSteps && fallbackSteps.length > 0 && (
             <div className="mt-5 rounded-lg border border-border bg-muted/50 px-4 py-3 text-left">
               <p className="mb-2 text-xs font-medium text-foreground">
