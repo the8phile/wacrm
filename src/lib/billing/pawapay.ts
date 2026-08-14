@@ -32,9 +32,32 @@ function authHeaders(): Record<string, string> {
   }
 }
 
+export interface PinPromptInstructionStep {
+  text: string
+  template: string
+  variables: Record<string, string>
+}
+
+export interface PinPromptChannel {
+  type: string
+  /** Locale code (e.g. "en", "fr") → human-readable channel name. */
+  displayName: Record<string, string>
+  /** Locale code → ordered fallback steps for that locale. */
+  instructions: Record<string, PinPromptInstructionStep[]>
+}
+
+export interface PinPromptInstructions {
+  channels: PinPromptChannel[]
+}
+
 export interface PawaPayProvider {
   provider: string
   operationTypes: Record<string, string>
+  /** Manual fallback steps (e.g. "Dial *115#, Enter PIN") for when the
+   *  automatic PIN-prompt push never reaches the customer's phone —
+   *  not present for every provider. Shown on the "waiting for
+   *  approval" screen once a payment is in flight. */
+  pinPromptInstructions?: PinPromptInstructions
 }
 
 /**

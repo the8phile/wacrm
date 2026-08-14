@@ -12,9 +12,22 @@ interface BillingInfo {
   plan_expires_at: string | null;
 }
 
+interface PinPromptInstructionStep {
+  text: string;
+  template: string;
+  variables: Record<string, string>;
+}
+
+interface PinPromptChannel {
+  type: string;
+  displayName: Record<string, string>;
+  instructions: Record<string, PinPromptInstructionStep[]>;
+}
+
 interface Provider {
   provider: string;
   operationTypes: Record<string, string>;
+  pinPromptInstructions?: { channels: PinPromptChannel[] };
 }
 
 const PLAN_OPTIONS = [
@@ -191,6 +204,10 @@ export function BillingSettings() {
 
   const activePlan = PLAN_OPTIONS.find((p) => p.id === selectedPlan)!;
 
+  const activeProviderInfo = providers.find((p) => p.provider === selectedProvider);
+  const ussdChannel = activeProviderInfo?.pinPromptInstructions?.channels.find((c) => c.type === 'USSD');
+  const fallbackSteps = ussdChannel?.instructions?.en;
+
   return (
     <div className="max-w-md">
       {billing && (
@@ -218,6 +235,18 @@ export function BillingSettings() {
             Check your phone and approve the mobile money request. This updates automatically.
           </p>
           <p className="mt-2 text-xs text-muted-foreground">Status: {paymentStatus}</p>
+          {fallbackSteps && fallbackSteps.length > 0 && (
+            <div className="mt-5 rounded-lg border border-border bg-muted/50 px-4 py-3 text-left">
+              <p className="mb-2 text-xs font-medium text-foreground">
+                {ussdChannel?.displayName?.en ?? 'Did not get a PIN prompt?'}
+              </p>
+              <ol className="list-inside list-decimal space-y-1 text-xs text-muted-foreground">
+                {fallbackSteps.map((step, i) => (
+                  <li key={i}>{step.text}</li>
+                ))}
+              </ol>
+            </div>
+          )}
         </div>
       ) : (
         <div className="rounded-2xl border border-border bg-card px-6 py-6 shadow-sm">
